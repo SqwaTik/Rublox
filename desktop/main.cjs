@@ -6,7 +6,7 @@
 // динамический import(), чтобы корректно работать и в dev, и в упакованном .exe
 // (где spawn(node) недоступен).
 
-const { app, BrowserWindow, Tray, Menu, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain } = require('electron');
 const { join } = require('node:path');
 const http = require('node:http');
 const { pathToFileURL } = require('node:url');
@@ -14,6 +14,7 @@ const { pathToFileURL } = require('node:url');
 const rootDir = join(__dirname, '..');
 const PORT = process.env.PORT || 8787;
 const APP_URL = `http://localhost:${PORT}`;
+const ICON = join(__dirname, 'assets', 'icon.png');
 
 let win = null;
 let tray = null;
@@ -53,20 +54,24 @@ async function waitServer(retries = 40) {
 }
 
 function trayIcon() {
-  const png =
-    'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAvElEQVR4nO3WMQ6CQBCF4X' +
-    '8XCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLEzN5xUtm' +
-    'dndmZ3dmYHfsfBPZ3l7yQ7sLDDDDDDDDPMP7Cwd2dndmZndmZndmYHdmZndmZndmZndmZn' +
-    'dmZndmZndmZndmYHdmZndmZndmZndmZndmZndmYHdmZndmZndmZndmZndmYHdmZndmZndmY' +
-    'HfsfBPwAH8wKQO2x0bQAAAABJRU5ErkJggg==';
-  return nativeImage.createFromBuffer(Buffer.from(png, 'base64'));
+  try {
+    const img = nativeImage.createFromPath(ICON);
+    if (!img.isEmpty()) return img.resize({ width: 18, height: 18 });
+  } catch { /* fallback ниже */ }
+  return nativeImage.createFromBuffer(Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAHElEQVR4nGNgGAWjYBSMglEwCkbBKBgFo2AUAAAGAAFy0Z0kAAAAAElFTkSuQmCC', 'base64'));
 }
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 1180, height: 780, minWidth: 720, minHeight: 520,
-    title: 'Roblox AI Assistant', backgroundColor: '#0a0b14', autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false },
+    width: 1200, height: 800, minWidth: 760, minHeight: 540,
+    title: 'Rublox', backgroundColor: '#0c0708',
+    frame: false, // кастомный титлбар
+    icon: ICON,
+    webPreferences: {
+      contextIsolation: true, nodeIntegration: false,
+      preload: join(__dirname, 'preload.cjs'),
+    },
   });
   win.loadURL(APP_URL);
   win.on('close', (e) => {
@@ -74,14 +79,22 @@ function createWindow() {
   });
 }
 
+// IPC управления окном из кастомного титлбара.
+ipcMain.on('win', (_e, action) => {
+  if (!win) return;
+  if (action === 'min') win.minimize();
+  else if (action === 'max') win.isMaximized() ? win.unmaximize() : win.maximize();
+  else if (action === 'close') win.hide();
+});
+
 function createTray() {
   tray = new Tray(trayIcon());
-  tray.setToolTip('Roblox AI Assistant');
+  tray.setToolTip('Rublox');
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Открыть', click: () => (win ? win.show() : createWindow()) },
-    { label: 'Открыть в браузере', click: () => shell.openExternal(APP_URL) },
+    { label: 'Open', click: () => (win ? win.show() : createWindow()) },
+    { label: 'Open in browser', click: () => shell.openExternal(APP_URL) },
     { type: 'separator' },
-    { label: 'Выход', click: () => { isQuiting = true; app.quit(); } },
+    { label: 'Quit', click: () => { isQuiting = true; app.quit(); } },
   ]));
   tray.on('double-click', () => (win ? win.show() : createWindow()));
 }

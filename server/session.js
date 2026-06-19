@@ -3,56 +3,61 @@
 import { config } from './config.js';
 import { estimateMessagesTokens, summarizeMessages } from './context.js';
 import { getProvider } from './llm/registry.js';
+import { complete } from './llm/providers.js';
 import { saveSession, loadSessionData, deleteSessionFile, listSessionIds } from './store.js';
 
 const BASE_PROMPT =
-  'Ты — AI-ассистент для разработки игр в Roblox Studio. ' +
-  'Помогаешь проектировать геймплей и пишешь Lua-код. ' +
-  'Когда подключён плагин Studio, используй инструменты (run_code, insert_model, ' +
-  'get_console_output, get_studio_context, start_stop_play, run_script_in_play_mode) ' +
-  'для реальных изменений в открытом плейсе. ' +
-  '\n\nГЛАВНОЕ ПРАВИЛО: ты редактируешь УЖЕ ОТКРЫТЫЙ плейс изнутри, а не генерируешь ' +
-  'внешние файлы. Когда тебя просят добавить игровую механику (управление, спринт, ' +
-  'способности, интерфейс), создавай ПОСТОЯННЫЕ объекты-скрипты в нужных сервисах ' +
-  'через run_code, чтобы они сохранились в плейсе и работали при запуске:\n' +
-  '- ввод/управление игроком (клавиши, спринт, прыжки, камера) → создай Instance ' +
-  '"LocalScript" в game.StarterPlayer.StarterPlayerScripts;\n' +
-  '- логика персонажа в StarterCharacterScripts при необходимости;\n' +
-  '- серверная логика (урон, спавны, очки, события) → "Script" в ServerScriptService;\n' +
+  'Ты — Rublox, AI-ассистент, встроенный в Roblox Studio через плагин. ' +
+  'Ты работаешь ВНУТРИ редактора Roblox Studio на компьютере пользователя: ' +
+  'через мост (long-poll) ты выполняешь Lua прямо в его открытом игровом ' +
+  'месте (place). Ты НЕ облачный бот и НЕ генератор файлов — ты редактируешь ' +
+  'живую сцену. Твоя задача — помогать делать игры на платформе Roblox: ' +
+  'геймплей, скрипты на Luau, объекты, UI.\n\n' +
+  'ОКРУЖЕНИЕ: иерархия game → сервисы (Workspace, Players, ReplicatedStorage, ' +
+  'ServerScriptService, StarterPlayer, StarterGui и т.д.). Язык — Luau (Roblox Lua). ' +
+  'Инструменты, если плагин подключён: run_code (Lua в edit-режиме), insert_model ' +
+  '(ассет каталога), get_console_output, get_studio_context (оглавление дерева), ' +
+  'start_stop_play / run_script_in_play_mode (плей-тест), use_template (готовые блоки).\n\n' +
+  'ГЛАВНОЕ ПРАВИЛО: ты редактируешь УЖЕ ОТКРЫТЫЙ плейс изнутри. Когда просят ' +
+  'добавить механику (управление, спринт, способности, интерфейс), создавай ' +
+  'ПОСТОЯННЫЕ объекты-скрипты в нужных сервисах через run_code, чтобы они ' +
+  'сохранились в плейсе и работали при запуске Play:\n' +
+  '- ввод/управление (клавиши, спринт, прыжки, камера) → "LocalScript" в ' +
+  'game.StarterPlayer.StarterPlayerScripts;\n' +
+  '- логика персонажа → StarterCharacterScripts;\n' +
+  '- серверная логика (урон, спавны, очки) → "Script" в ServerScriptService;\n' +
   '- общие модули → "ModuleScript" в ReplicatedStorage.\n' +
-  'Задавай скрипту осмысленное .Name, проверяй, нет ли уже такого (FindFirstChild), ' +
-  'и при повторном запросе обновляй .Source существующего, а не плоди дубли. ' +
-  'НЕ выполняй разовый код, который сработает один раз и исчезнет — пользователь ' +
-  'хочет, чтобы механика осталась в игре после нажатия Play.\n\n' +
-  'Пример: «спринт на Left Shift» → создать LocalScript в StarterPlayerScripts, ' +
-  'который через UserInputService меняет Humanoid.WalkSpeed на Shift.\n\n' +
-  'Для частых задач (платформер, NPC, гонка, лидерборд, сбор предметов) сначала ' +
-  'проверь инструмент use_template — это экономит токены. ' +
-  'Экономь токены: сначала запрашивай get_studio_context (оглавление), ' +
-  'а не весь код. Используй markdown: **жирный**, списки, `инлайн-код` и блоки ' +
-  '```lua ... ``` для кода. Отвечай по-русски, по делу, без воды.';
+  'Давай скрипту осмысленное .Name, проверяй FindFirstChild, при повторном ' +
+  'запросе обновляй .Source существующего, а не плоди дубли. НЕ выполняй разовый ' +
+  'код, который сработает один раз и исчезнет.\n\n' +
+  'Если задача большая — сначала кратко составь план списком (маркеры "- "), ' +
+  'затем выполняй по пунктам. Для частых задач проверь use_template — экономит токены. ' +
+  'Экономь токены: запрашивай get_studio_context (оглавление), а не весь код. ' +
+  'Оформляй ответ markdown: **жирный**, списки, `инлайн-код`, блоки ```lua ... ```.';
 
-// Уровни «мышления». budget — бюджет reasoning-токенов (для thinking-моделей),
+// Уровни «мышления». Названия типизированные (Min/Low/High/Max), не переводятся.
+// budget — бюджет reasoning-токенов (для thinking-моделей),
 // effort — поле для OpenAI reasoning_effort, temperature — запасной маппинг.
 export const THINKING_LEVELS = {
-  minimal: { label: 'Минимум', budget: 0, effort: 'low', temperature: 0.2 },
-  low: { label: 'Низкий', budget: 2048, effort: 'low', temperature: 0.4 },
-  medium: { label: 'Средний', budget: 6144, effort: 'medium', temperature: 0.7 },
-  high: { label: 'Глубокий', budget: 12288, effort: 'high', temperature: 1 },
+  min: { label: 'Min', budget: 0, effort: 'minimal', temperature: 0.2 },
+  low: { label: 'Low', budget: 2048, effort: 'low', temperature: 0.4 },
+  high: { label: 'High', budget: 6144, effort: 'high', temperature: 0.8 },
+  max: { label: 'Max', budget: 16384, effort: 'high', temperature: 1 },
 };
 
 export class Session {
   constructor(id) {
     this.id = id;
     this.title = 'Новый чат';
+    this.titleManual = false; // переименован ли пользователем вручную
     this.provider = config.provider;
     this.model = config.model;
-    this.thinking = 'medium';
+    this.thinking = 'high';
     this.messages = [];
     this.summary = '';
     this.contextNotes = [];
     this.systemPersona = '';
-    this.createdAt = null; // проставится при первом сохранении
+    this.createdAt = null;
     this._restore();
   }
 
@@ -60,6 +65,7 @@ export class Session {
     const data = loadSessionData(this.id);
     if (!data) return;
     this.title = data.title || this.title;
+    this.titleManual = !!data.titleManual;
     this.provider = data.provider || this.provider;
     this.model = data.model || this.model;
     this.thinking = data.thinking || this.thinking;
@@ -75,7 +81,7 @@ export class Session {
   }
 
   thinkingConfig() {
-    return THINKING_LEVELS[this.thinking] || THINKING_LEVELS.medium;
+    return THINKING_LEVELS[this.thinking] || THINKING_LEVELS.high;
   }
 
   systemPrompt() {
@@ -89,10 +95,6 @@ export class Session {
 
   addUser(text) {
     this.messages.push({ role: 'user', content: text });
-    // Автозаголовок по первому сообщению пользователя.
-    if (this.title === 'Новый чат' && text.trim()) {
-      this.title = text.trim().slice(0, 40);
-    }
   }
 
   addAssistant(text, toolCalls) {
@@ -159,6 +161,58 @@ export class Session {
       hasSummary: !!this.summary,
     };
   }
+
+  // История в виде сообщений для UI: user / assistant / tool.
+  uiMessages() {
+    const out = [];
+    for (const m of this.messages) {
+      if (m.role === 'user') {
+        out.push({ role: 'user', text: m.content });
+      } else if (m.role === 'assistant') {
+        if (m.content) out.push({ role: 'assistant', text: m.content });
+        for (const tc of m.toolCalls || []) {
+          out.push({ role: 'tool', text: `→ ${tc.name}(${JSON.stringify(tc.args || {})})` });
+        }
+      } else if (m.role === 'tool') {
+        out.push({ role: 'tool', text: `← ${m.name}: ${m.content}` });
+      }
+    }
+    return out;
+  }
+
+  rename(title) {
+    this.title = String(title || '').trim().slice(0, 60) || this.title;
+    this.titleManual = true;
+    this.persist();
+  }
+
+  // Авто-заголовок по теме (через LLM), если не переименован вручную.
+  async autoTitle() {
+    if (this.titleManual) return false;
+    if (this.messages.length < 2) return false;
+    const firstUser = this.messages.find((m) => m.role === 'user');
+    if (!firstUser) return false;
+    try {
+      const reply = await complete({
+        provider: this.provider,
+        system: 'Придумай короткий заголовок чата (3-5 слов, без кавычек и точки) ' +
+          'по теме первого сообщения. Ответь только заголовком.',
+        messages: [{ role: 'user', content: firstUser.content.slice(0, 500) }],
+        model: this.model,
+        temperature: 0.3,
+        useTools: false,
+      });
+      const t = (reply.text || '').trim().replace(/^["'«»]+|["'«».]+$/g, '').slice(0, 60);
+      if (t) {
+        this.title = t;
+        this.persist();
+        return true;
+      }
+    } catch {
+      // молча оставляем дефолтный заголовок
+    }
+    return false;
+  }
 }
 
 // ── Менеджер мультичатов ───────────────────────────────
@@ -206,7 +260,7 @@ function summaryFromDisk(id) {
     title: d.title || id,
     provider: d.provider,
     model: d.model,
-    thinking: d.thinking || 'medium',
+    thinking: d.thinking || 'high',
     messages: Array.isArray(d.messages) ? d.messages.length : 0,
   };
 }

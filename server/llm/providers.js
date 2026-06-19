@@ -14,7 +14,7 @@
 //   токенов и возвращает финальный { text, toolCalls }.
 
 import { config } from '../config.js';
-import { getProvider } from './registry.js';
+import { getProvider, effectiveKind } from './registry.js';
 import { toolsForAnthropic, toolsForOpenAI } from './tools.js';
 
 // ── Низкоуровневый HTTP ────────────────────────────────
@@ -300,7 +300,7 @@ function resolve(provider) {
 export async function complete({ provider, system, messages, model, temperature, maxTokens, useTools, thinking }) {
   const p = resolve(provider);
   const opts = { system, messages, model, temperature, maxTokens: maxTokens || config.maxTokens, useTools, thinking };
-  return p.kind === 'anthropic' ? callAnthropic(p, opts) : callOpenAI(p, opts);
+  return effectiveKind(p.kind) === 'anthropic' ? callAnthropic(p, opts) : callOpenAI(p, opts);
 }
 
 export async function streamComplete(
@@ -309,7 +309,7 @@ export async function streamComplete(
 ) {
   const p = resolve(provider);
   const opts = { system, messages, model, temperature, maxTokens: maxTokens || config.maxTokens, useTools, thinking };
-  return p.kind === 'anthropic'
+  return effectiveKind(p.kind) === 'anthropic'
     ? streamAnthropic(p, opts, onDelta)
     : streamOpenAI(p, opts, onDelta);
 }

@@ -1,112 +1,155 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Roblox AI Assistant</title>
+    <title>Rublox</title>
+    <link rel="icon" href="img/logo-64.png" />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <!-- ── Кастомный титлбар ── -->
+    <div class="titlebar" id="titlebar">
+      <div class="tb-left">
+        <img class="tb-logo" src="img/logo-64.png" alt="" />
+        <span class="tb-name">Rublox</span>
+        <span class="tb-sub">AI Studio</span>
+      </div>
+      <div class="tb-drag"></div>
+      <div class="tb-controls">
+        <button class="tb-btn" id="winMin" data-icon="min" title="Minimize"></button>
+        <button class="tb-btn" id="winMax" data-icon="square" title="Maximize"></button>
+        <button class="tb-btn tb-close" id="winClose" data-icon="close" title="Close"></button>
+      </div>
+    </div>
+
     <div class="app">
-      <!-- ── Сайдбар: чаты ── -->
-      <aside class="sidebar glass" id="sidebar">
+      <aside class="sidebar" id="sidebar">
         <div class="sidebar-head">
-          <div class="brand"><span class="logo">◆</span> AI Studio</div>
-          <button class="icon-btn" id="newChat" title="Новый чат">＋</button>
+          <button class="new-chat-btn" id="newChat"><span data-icon="plus"></span> <span data-t="newChat">New chat</span></button>
         </div>
         <div class="chat-list" id="chatList"></div>
         <div class="sidebar-foot">
-          <button class="ghost-btn" id="openSettings">⚙ Настройки</button>
-          <button class="ghost-btn" id="installPlugin">⬇ Установить плагин</button>
+          <button class="ghost-btn" id="openSettings"><span data-icon="settings"></span> <span data-t="settings">Settings</span></button>
+          <button class="ghost-btn" id="installPlugin"><span data-icon="download"></span> <span data-t="installPlugin">Install plugin</span></button>
+          <button class="ghost-btn danger" id="deleteAll"><span data-icon="trash"></span> <span data-t="deleteAll">Delete all chats</span></button>
         </div>
       </aside>
 
-      <!-- ── Основная область ── -->
       <main class="main">
-        <header class="topbar glass">
+        <header class="topbar">
           <div class="topbar-left">
-            <button class="icon-btn only-mobile" id="toggleSidebar">☰</button>
-            <span class="chat-title" id="chatTitle">Новый чат</span>
+            <button class="icon-btn only-mobile" id="toggleSidebar" data-icon="menu"></button>
+            <span class="chat-title" id="chatTitle" title="Double-click to rename">Main chat</span>
           </div>
-          <button class="status-chip disconnected" id="studioStatus" title="Подключение к Roblox Studio">
-            <span class="dot"></span> <span id="studioText">Studio: отключён</span>
+          <button class="status-chip disconnected" id="studioStatus">
+            <span data-icon="plug"></span> <span id="studioText" data-t="studioOff">Studio: disconnected</span>
           </button>
         </header>
 
         <section class="chat" id="chat"></section>
 
-        <div class="typing hidden" id="typing">
-          <span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span>
+        <!-- ── Индикатор работы (как в Claude Code) ── -->
+        <div class="worklog hidden" id="worklog">
+          <span class="wl-spin">✻</span>
+          <span class="wl-text" id="worklogText">Thinking</span>
+          <span class="wl-meta" id="worklogMeta"></span>
         </div>
 
-        <!-- ── Композер с мини-пикером модели ── -->
-        <footer class="composer glass">
-          <div class="composer-bar">
-            <button class="pill" id="modelPill" title="Выбрать модель">
-              <span id="modelPillText">Claude</span> <span class="chev">▾</span>
-            </button>
-            <button class="pill" id="thinkPill" title="Уровень мышления">
-              🧠 <span id="thinkPillText">Средний</span> <span class="chev">▾</span>
-            </button>
-          </div>
+        <footer class="composer">
           <div class="composer-input">
             <div class="suggest hidden" id="suggest"></div>
-            <textarea id="input" rows="1" placeholder="Опишите задачу или введите /команду…"></textarea>
-            <button class="send-btn" id="send" title="Отправить">➤</button>
+            <textarea id="input" rows="1" data-t-ph="placeholder" placeholder="Describe a task or type a /command…"></textarea>
+            <button class="send-btn" id="send" data-icon="send"></button>
+          </div>
+          <!-- минипикеры СПРАВА -->
+          <div class="composer-bar">
+            <div class="spacer"></div>
+            <button class="pill" id="thinkPill"><span data-icon="brain"></span> <span id="thinkPillText">High</span> <span class="chev" data-icon="chevron"></span></button>
+            <button class="pill" id="modelPill"><span data-icon="cpu"></span> <span id="modelPillText">No model</span> <span class="chev" data-icon="chevron"></span></button>
           </div>
         </footer>
       </main>
     </div>
 
-    <!-- ── Поповер выбора модели (как в Codex) ── -->
-    <div class="popover glass hidden" id="modelPopover">
+    <!-- Поповеры -->
+    <div class="popover hidden" id="modelPopover">
       <div class="pop-head">
-        Провайдер
         <select id="popProvider"></select>
       </div>
-      <input class="pop-search" id="modelSearch" placeholder="Поиск модели…" />
+      <input class="pop-search" id="modelSearch" placeholder="Search model…" />
       <div class="pop-list" id="modelList"></div>
     </div>
+    <div class="popover hidden" id="thinkPopover"><div class="pop-list" id="thinkList"></div></div>
 
-    <!-- ── Поповер уровня мышления ── -->
-    <div class="popover glass hidden" id="thinkPopover">
-      <div class="pop-list" id="thinkList"></div>
-    </div>
-
-    <!-- ── Модалка настроек ── -->
+    <!-- Модалка настроек с вкладками -->
     <div class="modal-overlay hidden" id="settingsOverlay">
-      <div class="modal glass">
+      <div class="modal">
         <div class="modal-head">
-          <h2>Настройки провайдеров</h2>
-          <button class="icon-btn" id="closeSettings">✕</button>
+          <div class="tabs">
+            <button class="tab active" data-tab="providers" data-t="providers">Providers</button>
+            <button class="tab" data-tab="appearance" data-t="appearance">Appearance</button>
+            <button class="tab" data-tab="about" data-t="about">About</button>
+          </div>
+          <button class="icon-btn" id="closeSettings" data-icon="close"></button>
         </div>
+
         <div class="modal-body">
-          <div class="provider-list" id="providerList"></div>
-          <hr class="sep" />
-          <h3>Добавить / изменить провайдера</h3>
-          <div class="form-grid">
-            <label>ID <input id="pf-id" placeholder="my-provider" /></label>
-            <label>Название <input id="pf-label" placeholder="Моя модель" /></label>
-            <label>Протокол
-              <select id="pf-kind">
-                <option value="openai">OpenAI-совместимый</option>
-                <option value="anthropic">Anthropic</option>
-              </select>
+          <!-- вкладка Providers -->
+          <div class="tab-pane active" data-pane="providers">
+            <div class="provider-list" id="providerList"></div>
+            <h3 data-t="quickTemplates">Quick templates (paste your key)</h3>
+            <div class="template-grid" id="templateGrid"></div>
+            <hr class="sep" />
+            <h3 data-t="addProvider">Add / edit provider</h3>
+            <div class="form-grid">
+              <label><span data-t="id">ID</span><input id="pf-id" placeholder="my-provider" /></label>
+              <label><span data-t="name">Name</span><input id="pf-label" placeholder="My provider" /></label>
+              <label><span data-t="protocol">Protocol</span>
+                <select id="pf-kind">
+                  <option value="multi">Multi (auto-route)</option>
+                  <option value="openai">OpenAI-compatible</option>
+                  <option value="anthropic">Anthropic</option>
+                </select>
+              </label>
+              <label><span data-t="baseUrl">Base URL</span><input id="pf-baseUrl" placeholder="https://api.example.com/v1" /></label>
+              <label><span data-t="apiKey">API key</span><input id="pf-apiKey" type="password" placeholder="sk-..." /></label>
+              <label><span data-t="model">Model</span><input id="pf-model" placeholder="optional" /></label>
+            </div>
+            <div class="form-actions">
+              <button class="ghost-btn" id="pf-fetch" data-t="previewModels">Preview models</button>
+              <button class="primary-btn" id="pf-save" data-t="save">Save</button>
+              <button class="ghost-btn danger" id="pf-delete" data-t="remove">Remove</button>
+            </div>
+            <select id="pf-models" class="hidden" size="6"></select>
+            <div class="form-hint" id="pf-hint"></div>
+          </div>
+
+          <!-- вкладка Appearance -->
+          <div class="tab-pane" data-pane="appearance">
+            <label class="set-row"><span data-t="language">Language</span>
+              <select id="set-lang"><option value="en">English</option><option value="ru">Русский</option></select>
             </label>
-            <label>Base URL <input id="pf-baseUrl" placeholder="https://api.example.com/v1" /></label>
-            <label>API-ключ (токен) <input id="pf-apiKey" type="password" placeholder="sk-..." /></label>
-            <label>Модель <input id="pf-model" placeholder="можно подгрузить ниже" /></label>
+            <label class="set-row"><span data-t="theme">Theme</span>
+              <select id="set-theme"><option value="red">Rublox Red</option><option value="dark">Neutral Dark</option></select>
+            </label>
           </div>
-          <div class="form-actions">
-            <button class="ghost-btn" id="pf-fetch">🔄 Подгрузить модели</button>
-            <select id="pf-models" class="hidden"></select>
-            <button class="primary-btn" id="pf-save">Сохранить</button>
+
+          <!-- вкладка About -->
+          <div class="tab-pane" data-pane="about">
+            <div class="about">
+              <img src="img/logo.png" class="about-logo" alt="" />
+              <h2>Rublox</h2>
+              <p data-t="aboutText"></p>
+              <p class="about-ver">v0.1.0</p>
+            </div>
           </div>
-          <div class="form-hint" id="pf-hint"></div>
         </div>
       </div>
     </div>
 
+    <script src="icons.js"></script>
+    <script src="i18n.js"></script>
     <script src="markdown.js"></script>
     <script src="app.js"></script>
   </body>

@@ -17,6 +17,7 @@ import { runAgent } from './agent.js';
 import {
   listProviders, upsertProvider, deleteProvider, fetchModels,
 } from './llm/registry.js';
+import { PROVIDER_TEMPLATES } from './llm/provider-templates.js';
 import { installPlugin } from './plugin-installer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -105,6 +106,9 @@ async function handleAppApi(req, res, url) {
   if (url === '/api/providers' && req.method === 'GET')
     return sendJson(res, 200, { providers: listProviders() });
 
+  if (url === '/api/provider-templates' && req.method === 'GET')
+    return sendJson(res, 200, { templates: PROVIDER_TEMPLATES });
+
   if (url === '/api/providers' && req.method === 'POST') {
     const body = await readBody(req);
     try {
@@ -147,9 +151,30 @@ async function handleAppApi(req, res, url) {
     return sendJson(res, 200, { chat: s.info() });
   }
 
+  if (url === '/api/chats/messages' && req.method === 'POST') {
+    const body = await readBody(req);
+    const s = getSession(body.id || 'default');
+    return sendJson(res, 200, { id: s.id, info: s.info(), messages: s.uiMessages() });
+  }
+
+  if (url === '/api/chats/rename' && req.method === 'POST') {
+    const body = await readBody(req);
+    const s = getSession(body.id || 'default');
+    s.rename(body.title);
+    return sendJson(res, 200, { ok: true, chats: listSessions() });
+  }
+
   if (url === '/api/chats/delete' && req.method === 'POST') {
     const body = await readBody(req);
     deleteSession(body.id);
+    return sendJson(res, 200, { ok: true, chats: listSessions() });
+  }
+
+  if (url === '/api/chats/delete-all' && req.method === 'POST') {
+    for (const c of listSessions()) {
+      if (c.id !== 'default') deleteSession(c.id);
+    }
+    getSession('default').reset();
     return sendJson(res, 200, { ok: true, chats: listSessions() });
   }
 
@@ -237,7 +262,8 @@ wss.on('connection', (ws) => {
     send({ type: 'typing' });
     try {
       await runAgent(session, (evType, d) => {
-        if (evType === 'assistant_start') send({ type: 'assistant_start' });
+        if (evType === 'status') send({ type: 'status_work', text: d.text, tokens: d.tokens });
+        else if (evType === 'assistant_start') send({ type: 'assistant_start' });
         else if (evType === 'assistant_delta') send({ type: 'assistant_delta', text: d.text });
         else if (evType === 'assistant_text') send({ type: 'assistant_end', text: d.text });
         else if (evType === 'tool_call') send({ type: 'tool', name: d.name, args: d.args });
@@ -248,6 +274,7 @@ wss.on('connection', (ws) => {
     } catch (err) {
       send({ type: 'error', text: err.message });
     }
+    await session.autoTitle(); // авто-заголовок по теме, если не переименован
     session.persist();
     send({ type: 'session', info: session.info() });
     send({ type: 'chats', chats: listSessions() });
@@ -258,6 +285,5 @@ wss.on('connection', (ws) => {
 });
 
 server.listen(config.port, () => {
-  console.log(`Roblox AI Assistant — сервер на http://localhost:${config.port}`);
-  console.log(`Провайдер по умолчанию: ${config.provider} (${config.model})`);
+  console.log(`Rublox — сервер на http://localhost:${config.port}`);
 });
