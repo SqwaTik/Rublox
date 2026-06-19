@@ -1,0 +1,19 @@
+{
+  "name": "roblox-ai-assistant",
+  "version": "0.1.0",
+  "description": "AI-ассистент для Roblox Studio: чат с поддержкой Claude/ChatGPT/локальных моделей, мост к плагину Studio, слеш-команды и компрессия контекста",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "check": "node --check server/index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "license": "MIT"
+}

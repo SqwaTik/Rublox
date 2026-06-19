@@ -1,0 +1,44 @@
+{
+  "providers": [
+    {
+      "id": "openrouter",
+      "label": "OpenRouter",
+      "kind": "openai",
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "apiKeyEnv": "OPENROUTER_API_KEY",
+      "model": "anthropic/claude-3.5-sonnet"
+    },
+    {
+      "id": "groq",
+      "label": "Groq",
+      "kind": "openai",
+      "baseUrl": "https://api.groq.com/openai/v1",
+      "apiKeyEnv": "GROQ_API_KEY",
+      "model": "llama-3.3-70b-versatile"
+    },
+    {
+      "id": "deepseek",
+      "label": "DeepSeek",
+      "kind": "openai",
+      "baseUrl": "https://api.deepseek.com/v1",
+      "apiKeyEnv": "DEEPSEEK_API_KEY",
+      "model": "deepseek-chat"
+    },
+    {
+      "id": "together",
+      "label": "Together",
+      "kind": "openai",
+      "baseUrl": "https://api.together.xyz/v1",
+      "apiKeyEnv": "TOGETHER_API_KEY",
+      "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+    },
+    {
+      "id": "ollama-remote",
+      "label": "Ollama (удалённый)",
+      "kind": "openai",
+      "baseUrl": "http://192.168.1.50:11434/v1",
+      "apiKey": "not-needed",
+      "model": "qwen2.5-coder"
+    }
+  ]
+}
