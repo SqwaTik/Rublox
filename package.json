@@ -1,7 +1,7 @@
 {
-  "name": "roblox-ai-assistant",
+  "name": "rublox",
   "version": "0.1.0",
-  "description": "AI-ассистент для Roblox Studio: чат с поддержкой Claude/ChatGPT/локальных моделей, мост к плагину Studio, слеш-команды и компрессия контекста",
+  "description": "Rublox — AI-ассистент для Roblox Studio: чат с любым LLM-провайдером, мост к плагину Studio, мультичаты, экономия токенов",
   "type": "module",
   "main": "desktop/main.cjs",
   "scripts": {
@@ -20,11 +20,13 @@
   },
   "devDependencies": {
     "electron": "^31.7.7",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.35.2"
   },
   "build": {
-    "appId": "com.sqwatik.robloxai",
-    "productName": "Roblox AI Assistant",
+    "appId": "com.sqwatik.rublox",
+    "productName": "Rublox",
     "directories": {
       "output": "dist"
     },
@@ -49,13 +51,14 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "icon": "desktop/assets/icon.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "Roblox AI Assistant"
+      "shortcutName": "Rublox"
     }
   },
   "license": "MIT"

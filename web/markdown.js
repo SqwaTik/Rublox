@@ -81,13 +81,19 @@
         continue;
       }
 
-      // Список
+      // Список (включая чек-листы/планы)
       if (/^\s*[-*]\s+/.test(line)) {
         if (!listOpen) {
           html += '<ul>';
           listOpen = true;
         }
-        html += `<li>${inline(escapeHtml(line.replace(/^\s*[-*]\s+/, '')))}</li>`;
+        const raw = line.replace(/^\s*[-*]\s+/, '');
+        // - [x] / - [ ] и строки, начинающиеся с ✔/✓/◻/◼
+        const done = /^\[[xX]\]\s+/.test(raw) || /^[✔✓☑]\s+/.test(raw);
+        const todo = /^\[\s?\]\s+/.test(raw) || /^[◻◼□▪]\s+/.test(raw);
+        const cleaned = raw.replace(/^\[[ xX]?\]\s+/, '').replace(/^[✔✓☑◻◼□▪]\s+/, '');
+        const cls = done ? ' class="done"' : todo ? ' class="todo"' : '';
+        html += `<li${cls}>${inline(escapeHtml(cleaned))}</li>`;
         i++;
         continue;
       }

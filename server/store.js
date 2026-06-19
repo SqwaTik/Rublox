@@ -25,6 +25,7 @@ export function saveSession(session) {
     const snapshot = {
       id: session.id,
       title: session.title,
+      titleManual: session.titleManual,
       provider: session.provider,
       model: session.model,
       thinking: session.thinking,
