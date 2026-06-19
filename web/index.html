@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Roblox AI Assistant</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="brand"><span class="logo">◆</span> Roblox AI Assistant</div>
+      <div class="controls">
+        <label>
+          Модель
+          <select id="provider">
+            <option value="anthropic">Claude</option>
+            <option value="openai">ChatGPT</option>
+            <option value="local">Local</option>
+          </select>
+        </label>
+        <label class="temp">
+          Креатив <span id="tempVal">0.7</span>
+          <input id="temp" type="range" min="0" max="2" step="0.1" value="0.7" />
+        </label>
+        <div id="studioStatus" class="status disconnected">
+          <span class="dot"></span> Studio: отключён
+        </div>
+      </div>
+    </header>
+
+    <main id="chat" class="chat">
+      <div class="msg system">
+        Привет! Я помогу собрать игру в Roblox Studio. Подключите плагин и
+        опишите задачу, либо введите <code>/help</code> для списка команд.
+      </div>
+    </main>
+
+    <div id="typing" class="typing hidden">AI печатает…</div>
+
+    <footer class="composer">
+      <div id="suggest" class="suggest hidden"></div>
+      <textarea id="input" rows="1" placeholder="Сообщение или /команда…"></textarea>
+      <button id="send">▶</button>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
