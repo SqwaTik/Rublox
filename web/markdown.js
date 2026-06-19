@@ -1,0 +1,124 @@
+// Лёгкий безопасный markdown→HTML рендер для чата (без зависимостей).
+// Экранирует HTML, поддерживает: код-блоки ```lang, инлайн-код, заголовки,
+// списки, цитаты, жирный/курсив, ссылки, горизонтальные линии.
+
+(function () {
+  function escapeHtml(s) {
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  // Инлайн-разметка внутри строки (после экранирования).
+  function inline(s) {
+    return s
+      .replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`)
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  }
+
+  function render(src) {
+    if (src == null) return '';
+    const text = String(src).replace(/\r\n/g, '\n');
+    const lines = text.split('\n');
+    let html = '';
+    let i = 0;
+    let listOpen = false;
+
+    const closeList = () => {
+      if (listOpen) {
+        html += '</ul>';
+        listOpen = false;
+      }
+    };
+
+    while (i < lines.length) {
+      const line = lines[i];
+
+      // Код-блок ```lang
+      const fence = line.match(/^```(\w*)\s*$/);
+      if (fence) {
+        closeList();
+        const lang = fence[1] || '';
+        const buf = [];
+        i++;
+        while (i < lines.length && !/^```\s*$/.test(lines[i])) {
+          buf.push(lines[i]);
+          i++;
+        }
+        i++; // пропустить закрывающую ```
+        const code = escapeHtml(buf.join('\n'));
+        const label = lang ? `<span class="code-lang">${lang}</span>` : '';
+        html += `<div class="codeblock">${label}<button class="copy-btn">copy</button><pre><code>${code}</code></pre></div>`;
+        continue;
+      }
+
+      // Заголовки
+      const h = line.match(/^(#{1,4})\s+(.*)$/);
+      if (h) {
+        closeList();
+        const level = h[1].length + 2; // h3..h6
+        html += `<h${level}>${inline(escapeHtml(h[2]))}</h${level}>`;
+        i++;
+        continue;
+      }
+
+      // Горизонтальная линия
+      if (/^---+\s*$/.test(line)) {
+        closeList();
+        html += '<hr />';
+        i++;
+        continue;
+      }
+
+      // Цитата
+      if (/^>\s?/.test(line)) {
+        closeList();
+        html += `<blockquote>${inline(escapeHtml(line.replace(/^>\s?/, '')))}</blockquote>`;
+        i++;
+        continue;
+      }
+
+      // Список
+      if (/^\s*[-*]\s+/.test(line)) {
+        if (!listOpen) {
+          html += '<ul>';
+          listOpen = true;
+        }
+        html += `<li>${inline(escapeHtml(line.replace(/^\s*[-*]\s+/, '')))}</li>`;
+        i++;
+        continue;
+      }
+
+      // Пустая строка
+      if (line.trim() === '') {
+        closeList();
+        i++;
+        continue;
+      }
+
+      // Обычный абзац (склеиваем подряд идущие строки)
+      closeList();
+      const para = [line];
+      i++;
+      while (
+        i < lines.length &&
+        lines[i].trim() !== '' &&
+        !/^```/.test(lines[i]) &&
+        !/^(#{1,4})\s/.test(lines[i]) &&
+        !/^\s*[-*]\s+/.test(lines[i]) &&
+        !/^>\s?/.test(lines[i])
+      ) {
+        para.push(lines[i]);
+        i++;
+      }
+      html += `<p>${inline(escapeHtml(para.join('\n'))).replace(/\n/g, '<br/>')}</p>`;
+    }
+    closeList();
+    return html;
+  }
+
+  window.mdRender = render;
+})();

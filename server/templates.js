@@ -75,6 +75,45 @@ Players.PlayerAdded:Connect(function(player)
 end)`.trim(),
   },
 
+  sprint_on_shift: {
+    title: 'Спринт на Left Shift',
+    description: 'Постоянный LocalScript в StarterPlayerScripts: ускорение по Shift.',
+    params: { sprintSpeed: 'скорость бега (по умолчанию 28)', walkSpeed: 'обычная (16)' },
+    build: (p = {}) => {
+      const sprint = Number(p.sprintSpeed) || 28;
+      const walk = Number(p.walkSpeed) || 16;
+      return `
+local sps = game:GetService("StarterPlayer").StarterPlayerScripts
+local existing = sps:FindFirstChild("SprintController")
+if existing then existing:Destroy() end
+local s = Instance.new("LocalScript")
+s.Name = "SprintController"
+s.Source = [==[
+local UIS = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local SPRINT = ${sprint}
+local WALK = ${walk}
+local function humanoid()
+\tlocal char = Players.LocalPlayer.Character
+\treturn char and char:FindFirstChildOfClass("Humanoid")
+end
+UIS.InputBegan:Connect(function(input, gp)
+\tif gp then return end
+\tif input.KeyCode == Enum.KeyCode.LeftShift then
+\t\tlocal h = humanoid(); if h then h.WalkSpeed = SPRINT end
+\tend
+end)
+UIS.InputEnded:Connect(function(input)
+\tif input.KeyCode == Enum.KeyCode.LeftShift then
+\t\tlocal h = humanoid(); if h then h.WalkSpeed = WALK end
+\tend
+end)
+]==]
+s.Parent = sps
+print("SprintController установлен, Shift = " .. SPRINT)`.trim();
+    },
+  },
+
   click_to_collect: {
     title: 'Сбор предмета по клику',
     description: 'Part с ClickDetector, начисляет очки и исчезает по клику.',

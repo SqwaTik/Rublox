@@ -59,13 +59,15 @@ export async function runAgent(session, onEvent = () => {}) {
 
   for (let step = 0; step < MAX_STEPS; step++) {
     onEvent('assistant_start', {});
+    const think = session.thinkingConfig();
     const reply = await streamComplete(
       {
         provider: session.provider,
         system: session.systemPrompt(),
         messages: session.getCompiledMessages(),
         model: session.model,
-        temperature: session.temperature,
+        temperature: think.temperature,
+        thinking: think,
         useTools,
       },
       (chunk) => onEvent('assistant_delta', { text: chunk })

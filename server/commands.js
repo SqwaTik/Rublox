@@ -7,12 +7,13 @@ import { config } from './config.js';
 import { bridge } from './bridge.js';
 import { listProviders, isKnownProvider } from './llm/registry.js';
 import { listTemplates, renderTemplate } from './templates.js';
+import { THINKING_LEVELS } from './session.js';
 
 const execAsync = promisify(exec);
 
 export const COMMAND_LIST = [
   'help', 'connect', 'disconnect', 'status', 'model', 'models', 'setmodel',
-  'temp', 'persona', 'context', 'compact', 'reset', 'run', 'insert',
+  'think', 'persona', 'context', 'compact', 'reset', 'run', 'insert',
   'console', 'tree', 'play', 'stop', 'playrun', 'templates', 'template', 'local',
 ];
 
@@ -24,7 +25,7 @@ const HELP = [
   '/models — список доступных провайдеров',
   '/model <id> — сменить провайдера (id из /models)',
   '/setmodel <имя> — задать имя модели у текущего провайдера',
-  '/temp <0..2> — установить температуру',
+  '/think <minimal|low|medium|high> — уровень мышления',
   '/persona <текст> — задать роль (системный промпт)',
   '/context <текст> — добавить заметку в контекст проекта',
   '/compact — свернуть историю в резюме',
@@ -106,12 +107,16 @@ export async function handleCommand(session, raw) {
       return { handled: true, reply: `Модель: ${session.model} (провайдер ${session.provider})` };
     }
 
-    case '/temp': {
-      const t = Number(arg);
-      if (Number.isNaN(t) || t < 0 || t > 2)
-        return { handled: true, reply: 'Температура должна быть числом 0..2' };
-      session.temperature = t;
-      return { handled: true, reply: `Температура: ${t}` };
+    case '/think': {
+      const lvl = arg.toLowerCase();
+      if (!THINKING_LEVELS[lvl]) {
+        const opts = Object.entries(THINKING_LEVELS)
+          .map(([k, v]) => `${k} (${v.label})`)
+          .join(', ');
+        return { handled: true, reply: `Уровни мышления: ${opts}` };
+      }
+      session.setThinking(lvl);
+      return { handled: true, reply: `Уровень мышления: ${THINKING_LEVELS[lvl].label}` };
     }
 
     case '/persona':

@@ -7,42 +7,107 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <header class="toolbar">
-      <div class="brand"><span class="logo">◆</span> Roblox AI Assistant</div>
-      <div class="controls">
-        <label>
-          Модель
-          <select id="provider">
-            <option value="anthropic">Claude</option>
-            <option value="openai">ChatGPT</option>
-            <option value="local">Local</option>
-          </select>
-        </label>
-        <label class="temp">
-          Креатив <span id="tempVal">0.7</span>
-          <input id="temp" type="range" min="0" max="2" step="0.1" value="0.7" />
-        </label>
-        <div id="studioStatus" class="status disconnected">
-          <span class="dot"></span> Studio: отключён
+    <div class="app">
+      <!-- ── Сайдбар: чаты ── -->
+      <aside class="sidebar glass" id="sidebar">
+        <div class="sidebar-head">
+          <div class="brand"><span class="logo">◆</span> AI Studio</div>
+          <button class="icon-btn" id="newChat" title="Новый чат">＋</button>
+        </div>
+        <div class="chat-list" id="chatList"></div>
+        <div class="sidebar-foot">
+          <button class="ghost-btn" id="openSettings">⚙ Настройки</button>
+          <button class="ghost-btn" id="installPlugin">⬇ Установить плагин</button>
+        </div>
+      </aside>
+
+      <!-- ── Основная область ── -->
+      <main class="main">
+        <header class="topbar glass">
+          <div class="topbar-left">
+            <button class="icon-btn only-mobile" id="toggleSidebar">☰</button>
+            <span class="chat-title" id="chatTitle">Новый чат</span>
+          </div>
+          <button class="status-chip disconnected" id="studioStatus" title="Подключение к Roblox Studio">
+            <span class="dot"></span> <span id="studioText">Studio: отключён</span>
+          </button>
+        </header>
+
+        <section class="chat" id="chat"></section>
+
+        <div class="typing hidden" id="typing">
+          <span class="t-dot"></span><span class="t-dot"></span><span class="t-dot"></span>
+        </div>
+
+        <!-- ── Композер с мини-пикером модели ── -->
+        <footer class="composer glass">
+          <div class="composer-bar">
+            <button class="pill" id="modelPill" title="Выбрать модель">
+              <span id="modelPillText">Claude</span> <span class="chev">▾</span>
+            </button>
+            <button class="pill" id="thinkPill" title="Уровень мышления">
+              🧠 <span id="thinkPillText">Средний</span> <span class="chev">▾</span>
+            </button>
+          </div>
+          <div class="composer-input">
+            <div class="suggest hidden" id="suggest"></div>
+            <textarea id="input" rows="1" placeholder="Опишите задачу или введите /команду…"></textarea>
+            <button class="send-btn" id="send" title="Отправить">➤</button>
+          </div>
+        </footer>
+      </main>
+    </div>
+
+    <!-- ── Поповер выбора модели (как в Codex) ── -->
+    <div class="popover glass hidden" id="modelPopover">
+      <div class="pop-head">
+        Провайдер
+        <select id="popProvider"></select>
+      </div>
+      <input class="pop-search" id="modelSearch" placeholder="Поиск модели…" />
+      <div class="pop-list" id="modelList"></div>
+    </div>
+
+    <!-- ── Поповер уровня мышления ── -->
+    <div class="popover glass hidden" id="thinkPopover">
+      <div class="pop-list" id="thinkList"></div>
+    </div>
+
+    <!-- ── Модалка настроек ── -->
+    <div class="modal-overlay hidden" id="settingsOverlay">
+      <div class="modal glass">
+        <div class="modal-head">
+          <h2>Настройки провайдеров</h2>
+          <button class="icon-btn" id="closeSettings">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="provider-list" id="providerList"></div>
+          <hr class="sep" />
+          <h3>Добавить / изменить провайдера</h3>
+          <div class="form-grid">
+            <label>ID <input id="pf-id" placeholder="my-provider" /></label>
+            <label>Название <input id="pf-label" placeholder="Моя модель" /></label>
+            <label>Протокол
+              <select id="pf-kind">
+                <option value="openai">OpenAI-совместимый</option>
+                <option value="anthropic">Anthropic</option>
+              </select>
+            </label>
+            <label>Base URL <input id="pf-baseUrl" placeholder="https://api.example.com/v1" /></label>
+            <label>API-ключ (токен) <input id="pf-apiKey" type="password" placeholder="sk-..." /></label>
+            <label>Модель <input id="pf-model" placeholder="можно подгрузить ниже" /></label>
+          </div>
+          <div class="form-actions">
+            <button class="ghost-btn" id="pf-fetch">🔄 Подгрузить модели</button>
+            <select id="pf-models" class="hidden"></select>
+            <button class="primary-btn" id="pf-save">Сохранить</button>
+          </div>
+          <div class="form-hint" id="pf-hint"></div>
         </div>
       </div>
-    </header>
+    </div>
 
-    <main id="chat" class="chat">
-      <div class="msg system">
-        Привет! Я помогу собрать игру в Roblox Studio. Подключите плагин и
-        опишите задачу, либо введите <code>/help</code> для списка команд.
-      </div>
-    </main>
-
-    <div id="typing" class="typing hidden">AI печатает…</div>
-
-    <footer class="composer">
-      <div id="suggest" class="suggest hidden"></div>
-      <textarea id="input" rows="1" placeholder="Сообщение или /команда…"></textarea>
-      <button id="send">▶</button>
-    </footer>
-
+    <script src="markdown.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

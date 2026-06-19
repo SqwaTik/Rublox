@@ -9,10 +9,15 @@ import { WebSocketServer } from 'ws';
 
 import { config } from './config.js';
 import { bridge } from './bridge.js';
-import { getSession } from './session.js';
+import {
+  getSession, createSession, deleteSession, listSessions,
+} from './session.js';
 import { handleCommand } from './commands.js';
 import { runAgent } from './agent.js';
-import { listProviders } from './llm/registry.js';
+import {
+  listProviders, upsertProvider, deleteProvider, fetchModels,
+} from './llm/registry.js';
+import { installPlugin } from './plugin-installer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const webDir = join(__dirname, '..', 'web');
@@ -94,12 +99,79 @@ async function handlePluginApi(req, res, url) {
   return sendJson(res, 404, { error: 'Неизвестный эндпоинт' });
 }
 
+// ── REST приложения (провайдеры, модели, чаты, плагин) ─
+async function handleAppApi(req, res, url) {
+  // Провайдеры
+  if (url === '/api/providers' && req.method === 'GET')
+    return sendJson(res, 200, { providers: listProviders() });
+
+  if (url === '/api/providers' && req.method === 'POST') {
+    const body = await readBody(req);
+    try {
+      const p = upsertProvider(body);
+      broadcastProviders();
+      return sendJson(res, 200, { ok: true, provider: { id: p.id, label: p.label, model: p.model } });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (url === '/api/providers/delete' && req.method === 'POST') {
+    const body = await readBody(req);
+    const ok = deleteProvider(body.id);
+    broadcastProviders();
+    return sendJson(res, 200, { ok });
+  }
+
+  // Живой список моделей по токену
+  if (url === '/api/models' && req.method === 'POST') {
+    const body = await readBody(req);
+    try {
+      // Сначала временно применим переданные данные провайдера (если есть).
+      if (body.provider && (body.apiKey != null || body.baseUrl)) {
+        upsertProvider({ id: body.provider, ...body });
+      }
+      const models = await fetchModels(body.provider);
+      return sendJson(res, 200, { models });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  // Чаты
+  if (url === '/api/chats' && req.method === 'GET')
+    return sendJson(res, 200, { chats: listSessions() });
+
+  if (url === '/api/chats' && req.method === 'POST') {
+    const s = createSession();
+    return sendJson(res, 200, { chat: s.info() });
+  }
+
+  if (url === '/api/chats/delete' && req.method === 'POST') {
+    const body = await readBody(req);
+    deleteSession(body.id);
+    return sendJson(res, 200, { ok: true, chats: listSessions() });
+  }
+
+  // Установка плагина в Roblox Studio
+  if (url === '/api/install-plugin' && req.method === 'POST') {
+    try {
+      const result = installPlugin();
+      return sendJson(res, 200, result);
+    } catch (e) {
+      return sendJson(res, 500, { error: e.message });
+    }
+  }
+
+  return sendJson(res, 404, { error: 'Неизвестный эндпоинт' });
+}
+
 const server = createServer(async (req, res) => {
   const url = req.url.split('?')[0];
   try {
     if (url.startsWith('/api/roblox/')) return await handlePluginApi(req, res, url);
     if (url === '/api/status') return sendJson(res, 200, bridge.status());
-    if (url === '/api/providers') return sendJson(res, 200, { providers: listProviders() });
+    if (url.startsWith('/api/')) return await handleAppApi(req, res, url);
     return await serveStatic(req, res);
   } catch (err) {
     sendJson(res, 500, { error: err.message });
@@ -117,15 +189,21 @@ function broadcastStatus() {
   }
 }
 
+function broadcastProviders() {
+  const msg = JSON.stringify({ type: 'providers', providers: listProviders() });
+  for (const ws of clients) {
+    if (ws.readyState === ws.OPEN) ws.send(msg);
+  }
+}
+
 // Периодически рассылаем статус соединения с Roblox.
 setInterval(broadcastStatus, 5000);
 
 wss.on('connection', (ws) => {
   clients.add(ws);
-  const session = getSession('default');
   ws.send(JSON.stringify({ type: 'status', status: bridge.status() }));
   ws.send(JSON.stringify({ type: 'providers', providers: listProviders() }));
-  ws.send(JSON.stringify({ type: 'session', info: session.info() }));
+  ws.send(JSON.stringify({ type: 'chats', chats: listSessions() }));
 
   ws.on('message', async (data) => {
     let payload;
@@ -139,6 +217,8 @@ wss.on('connection', (ws) => {
     const text = String(payload.text || '').trim();
     if (!text) return;
 
+    // Активный чат передаётся клиентом; по умолчанию 'default'.
+    const session = getSession(payload.chatId || 'default');
     const send = (obj) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(obj));
 
     // Слеш-команды обрабатываются локально, без обращения к LLM.
@@ -147,6 +227,7 @@ wss.on('connection', (ws) => {
       send({ type: 'assistant', text: cmd.reply });
       session.persist();
       send({ type: 'session', info: session.info() });
+      send({ type: 'chats', chats: listSessions() });
       send({ type: 'done' });
       return;
     }
@@ -155,13 +236,13 @@ wss.on('connection', (ws) => {
     session.addUser(text);
     send({ type: 'typing' });
     try {
-      await runAgent(session, (evType, data) => {
+      await runAgent(session, (evType, d) => {
         if (evType === 'assistant_start') send({ type: 'assistant_start' });
-        else if (evType === 'assistant_delta') send({ type: 'assistant_delta', text: data.text });
-        else if (evType === 'assistant_text') send({ type: 'assistant_end', text: data.text });
-        else if (evType === 'tool_call') send({ type: 'tool', name: data.name, args: data.args });
+        else if (evType === 'assistant_delta') send({ type: 'assistant_delta', text: d.text });
+        else if (evType === 'assistant_text') send({ type: 'assistant_end', text: d.text });
+        else if (evType === 'tool_call') send({ type: 'tool', name: d.name, args: d.args });
         else if (evType === 'tool_result')
-          send({ type: 'tool_result', name: data.name, ok: data.ok, result: data.result });
+          send({ type: 'tool_result', name: d.name, ok: d.ok, result: d.result });
       });
       await session.maybeCompress();
     } catch (err) {
@@ -169,6 +250,7 @@ wss.on('connection', (ws) => {
     }
     session.persist();
     send({ type: 'session', info: session.info() });
+    send({ type: 'chats', chats: listSessions() });
     send({ type: 'done' });
   });
 

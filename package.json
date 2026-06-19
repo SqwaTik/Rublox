@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
+    "desktop": "electron desktop/main.cjs",
     "check": "node --check server/index.js"
   },
   "engines": {
@@ -14,6 +15,9 @@
   },
   "dependencies": {
     "ws": "^8.18.0"
+  },
+  "optionalDependencies": {
+    "electron": "^31.0.0"
   },
   "license": "MIT"
 }
