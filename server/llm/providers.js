@@ -84,7 +84,7 @@ function canonToAnthropic(messages) {
   return out;
 }
 
-function anthropicBody(p, { system, messages, model, temperature, maxTokens, useTools }, stream) {
+function anthropicBody(p, { system, messages, model, temperature, maxTokens, useTools, thinking }, stream) {
   const body = {
     model: model || p.model,
     max_tokens: maxTokens,
@@ -92,6 +92,11 @@ function anthropicBody(p, { system, messages, model, temperature, maxTokens, use
     system,
     messages: canonToAnthropic(messages),
   };
+  // Extended thinking: включаем на «глубоком» уровне. Требует temperature=1.
+  if (thinking && thinking.budget >= 4096) {
+    body.thinking = { type: 'enabled', budget_tokens: thinking.budget };
+    body.temperature = 1;
+  }
   if (useTools) body.tools = toolsForAnthropic();
   if (stream) body.stream = true;
   return body;
@@ -198,13 +203,15 @@ function canonToOpenAI(system, messages) {
   return out;
 }
 
-function openaiBody(p, { system, messages, model, temperature, maxTokens, useTools }, stream) {
+function openaiBody(p, { system, messages, model, temperature, maxTokens, useTools, thinking }, stream) {
   const body = {
     model: model || p.model,
     temperature,
     max_tokens: maxTokens,
     messages: canonToOpenAI(system, messages),
   };
+  // reasoning_effort для reasoning-моделей (o-серия, gpt-5 и совместимые).
+  if (thinking && thinking.effort) body.reasoning_effort = thinking.effort;
   if (useTools) body.tools = toolsForOpenAI();
   if (stream) {
     body.stream = true;
@@ -290,18 +297,18 @@ function resolve(provider) {
   return p;
 }
 
-export async function complete({ provider, system, messages, model, temperature, maxTokens, useTools }) {
+export async function complete({ provider, system, messages, model, temperature, maxTokens, useTools, thinking }) {
   const p = resolve(provider);
-  const opts = { system, messages, model, temperature, maxTokens: maxTokens || config.maxTokens, useTools };
+  const opts = { system, messages, model, temperature, maxTokens: maxTokens || config.maxTokens, useTools, thinking };
   return p.kind === 'anthropic' ? callAnthropic(p, opts) : callOpenAI(p, opts);
 }
 
 export async function streamComplete(
-  { provider, system, messages, model, temperature, maxTokens, useTools },
+  { provider, system, messages, model, temperature, maxTokens, useTools, thinking },
   onDelta = () => {}
 ) {
   const p = resolve(provider);
-  const opts = { system, messages, model, temperature, maxTokens: maxTokens || config.maxTokens, useTools };
+  const opts = { system, messages, model, temperature, maxTokens: maxTokens || config.maxTokens, useTools, thinking };
   return p.kind === 'anthropic'
     ? streamAnthropic(p, opts, onDelta)
     : streamOpenAI(p, opts, onDelta);

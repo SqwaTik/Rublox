@@ -1,7 +1,7 @@
 // Хранение сессий на диске: история, резюме, настройки.
 // Файлы лежат в data/sessions/<id>.json. Без внешних зависимостей.
 
-import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from './config.js';
 
@@ -21,15 +21,18 @@ function fileFor(id) {
 export function saveSession(session) {
   try {
     ensureDir();
+    if (!session.createdAt) session.createdAt = new Date().toISOString();
     const snapshot = {
       id: session.id,
+      title: session.title,
       provider: session.provider,
       model: session.model,
-      temperature: session.temperature,
+      thinking: session.thinking,
       messages: session.messages,
       summary: session.summary,
       contextNotes: session.contextNotes,
       systemPersona: session.systemPersona,
+      createdAt: session.createdAt,
       savedAt: new Date().toISOString(),
     };
     writeFileSync(fileFor(session.id), JSON.stringify(snapshot, null, 2));
@@ -47,6 +50,15 @@ export function loadSessionData(id) {
   } catch (err) {
     if (err.code !== 'ENOENT') console.warn('loadSession:', err.message);
     return null;
+  }
+}
+
+export function deleteSessionFile(id) {
+  try {
+    rmSync(fileFor(id));
+    return true;
+  } catch {
+    return false;
   }
 }
 
