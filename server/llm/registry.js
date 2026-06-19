@@ -15,7 +15,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from '../config.js';
 
-const userFile = join(config.rootDir, 'data', 'providers.user.json');
+const userFile = join(config.dataDir, 'data', 'providers.user.json');
 
 function builtins() {
   return [
@@ -74,7 +74,7 @@ function loadUser() {
 
 function saveUser() {
   try {
-    const dir = join(config.rootDir, 'data');
+    const dir = join(config.dataDir, 'data');
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     writeFileSync(userFile, JSON.stringify(userProviders, null, 2));
   } catch (err) {

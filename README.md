@@ -60,13 +60,28 @@ npm start
 ## Десктоп-приложение (трей)
 
 ```bash
-npm install            # подтянет electron (optionalDependency)
-npm run desktop
+npm install            # подтянет electron + electron-builder
+npm run desktop        # запуск в режиме разработки
 ```
 
 Приложение запускает сервер внутри себя, открывает окно и живёт в системном
 трее (скрытые значки). Крестик прячет окно, а не закрывает — вернуть через
 двойной клик по иконке в трее или пункт «Открыть». Полный выход — пункт «Выход».
+
+### Сборка .exe
+
+```bash
+npm run build          # установщик NSIS → dist/Roblox AI Assistant Setup <ver>.exe
+npm run build:dir      # распакованная версия → dist/win-unpacked/
+```
+
+Готовый установщик появится в `dist/`. Данные приложения (сессии, провайдеры,
+сборка плагина) в упакованной версии пишутся в `%APPDATA%\Roblox AI Assistant`.
+
+> Подсказка для Windows: если `electron-builder` падает на распаковке
+> `winCodeSign` (ошибка симлинков `libcrypto.dylib`/`libssl.dylib`) — это нужно
+> только для подписи под macOS. Включите Developer Mode или распакуйте архив
+> кэша вручную; на саму сборку под Windows эти файлы не влияют.
 
 ## Как это работает (это не Rojo)
 

@@ -9,8 +9,21 @@ import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
 import { config } from './config.js';
 
-const pluginLuaPath = join(config.rootDir, 'plugin', 'AIAssistantPlugin.server.lua');
-const buildDir = join(config.rootDir, 'build');
+// Исходник плагина: в dev — в rootDir/plugin, в упакованном — в resources/plugin.
+function findPluginLua() {
+  const candidates = [
+    join(config.rootDir, 'plugin', 'AIAssistantPlugin.server.lua'),
+    process.resourcesPath
+      ? join(process.resourcesPath, 'plugin', 'AIAssistantPlugin.server.lua')
+      : null,
+  ].filter(Boolean);
+  for (const c of candidates) {
+    if (existsSync(c)) return c;
+  }
+  return candidates[0];
+}
+
+const buildDir = join(config.dataDir, 'build');
 
 // Экранирование для XML-CDATA: разбиваем последовательность ]]>, если встретится.
 function cdataSafe(src) {
@@ -19,7 +32,7 @@ function cdataSafe(src) {
 
 // Генерирует модель .rbxm (XML внутри) с одним Script — исходником плагина.
 export function buildRbxm() {
-  const lua = readFileSync(pluginLuaPath, 'utf8');
+  const lua = readFileSync(findPluginLua(), 'utf8');
   const xml = `<roblox version="4">
   <Item class="Script" referent="RBX0">
     <Properties>

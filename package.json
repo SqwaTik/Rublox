@@ -3,11 +3,13 @@
   "version": "0.1.0",
   "description": "AI-ассистент для Roblox Studio: чат с поддержкой Claude/ChatGPT/локальных моделей, мост к плагину Studio, слеш-команды и компрессия контекста",
   "type": "module",
-  "main": "server/index.js",
+  "main": "desktop/main.cjs",
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "desktop": "electron desktop/main.cjs",
+    "build": "electron-builder",
+    "build:dir": "electron-builder --dir",
     "check": "node --check server/index.js"
   },
   "engines": {
@@ -16,8 +18,45 @@
   "dependencies": {
     "ws": "^8.18.0"
   },
-  "optionalDependencies": {
-    "electron": "^31.0.0"
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.sqwatik.robloxai",
+    "productName": "Roblox AI Assistant",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "desktop/**/*",
+      "server/**/*",
+      "web/**/*",
+      "plugin/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "plugin",
+        "to": "plugin"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Roblox AI Assistant"
+    }
   },
   "license": "MIT"
 }
