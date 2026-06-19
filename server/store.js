@@ -5,7 +5,7 @@ import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync, rmSync
 import { join } from 'node:path';
 import { config } from './config.js';
 
-const dataDir = join(config.rootDir, 'data', 'sessions');
+const dataDir = join(config.dataDir, 'data', 'sessions');
 
 function ensureDir() {
   if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });

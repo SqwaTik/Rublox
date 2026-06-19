@@ -1,37 +1,41 @@
-// Electron-обёртка: запускает встроенный сервер, открывает окно,
-// прячется в трей (системные/скрытые значки), не закрывается по крестику.
+// Electron-обёртка: запускает встроенный сервер В ТОМ ЖЕ процессе,
+// открывает окно, прячется в трей (системные/скрытые значки),
+// не закрывается по крестику.
 //
-// .cjs — CommonJS, т.к. Electron главный процесс надёжнее работает в CJS,
-// даже когда package.json помечен как "type": "module".
+// .cjs — CommonJS для главного процесса. Сервер (ESM) подгружается через
+// динамический import(), чтобы корректно работать и в dev, и в упакованном .exe
+// (где spawn(node) недоступен).
 
 const { app, BrowserWindow, Tray, Menu, nativeImage, shell } = require('electron');
 const { join } = require('node:path');
-const { spawn } = require('node:child_process');
 const http = require('node:http');
+const { pathToFileURL } = require('node:url');
 
 const rootDir = join(__dirname, '..');
 const PORT = process.env.PORT || 8787;
-const URL = `http://localhost:${PORT}`;
+const APP_URL = `http://localhost:${PORT}`;
 
 let win = null;
 let tray = null;
-let serverProc = null;
 let isQuiting = false;
 
-function startServer() {
-  serverProc = spawn(process.execPath, [join(rootDir, 'server', 'index.js')], {
-    cwd: rootDir,
-    env: { ...process.env, PORT: String(PORT) },
-    stdio: 'inherit',
-  });
-  serverProc.on('exit', (code) => {
-    if (!isQuiting) console.error(`Сервер завершился с кодом ${code}`);
-  });
+// Запуск сервера в текущем процессе.
+async function startServer() {
+  process.env.PORT = String(PORT);
+  // Данные (сессии, провайдеры, сборка плагина) — в userData, чтобы работало
+  // в упакованном приложении (папка установки доступна только на чтение).
+  process.env.ROBLOX_AI_DATA_DIR = app.getPath('userData');
+  const serverEntry = pathToFileURL(join(rootDir, 'server', 'index.js')).href;
+  try {
+    await import(serverEntry);
+  } catch (err) {
+    console.error('Не удалось запустить сервер:', err);
+  }
 }
 
 function ping() {
   return new Promise((resolve) => {
-    const req = http.get(`${URL}/api/status`, (res) => {
+    const req = http.get(`${APP_URL}/api/status`, (res) => {
       res.resume();
       resolve(res.statusCode === 200);
     });
@@ -64,7 +68,7 @@ function createWindow() {
     title: 'Roblox AI Assistant', backgroundColor: '#0a0b14', autoHideMenuBar: true,
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
-  win.loadURL(URL);
+  win.loadURL(APP_URL);
   win.on('close', (e) => {
     if (!isQuiting) { e.preventDefault(); win.hide(); }
   });
@@ -75,27 +79,33 @@ function createTray() {
   tray.setToolTip('Roblox AI Assistant');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Открыть', click: () => (win ? win.show() : createWindow()) },
-    { label: 'Открыть в браузере', click: () => shell.openExternal(URL) },
+    { label: 'Открыть в браузере', click: () => shell.openExternal(APP_URL) },
     { type: 'separator' },
     { label: 'Выход', click: () => { isQuiting = true; app.quit(); } },
   ]));
   tray.on('double-click', () => (win ? win.show() : createWindow()));
 }
 
-app.whenReady().then(async () => {
-  startServer();
-  await waitServer();
-  createWindow();
-  createTray();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+// Один экземпляр приложения.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (win) { win.show(); win.focus(); }
   });
-});
+
+  app.whenReady().then(async () => {
+    await startServer();
+    await waitServer();
+    createWindow();
+    createTray();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+}
 
 // Живём в трее — не выходим при закрытии окон.
 app.on('window-all-closed', () => {});
 
-app.on('before-quit', () => {
-  isQuiting = true;
-  if (serverProc) serverProc.kill();
-});
+app.on('before-quit', () => { isQuiting = true; });

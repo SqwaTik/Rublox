@@ -38,6 +38,9 @@ const num = (v, def) => (v == null || v === '' ? def : Number(v));
 
 export const config = {
   rootDir,
+  // Каталог для записи (сессии, пользовательские провайдеры, сборка плагина).
+  // В упакованном Electron переопределяется на userData через env.
+  dataDir: process.env.ROBLOX_AI_DATA_DIR || rootDir,
   port: num(process.env.PORT, 8787),
   bridgeToken: process.env.BRIDGE_TOKEN || 'change-me',
 
