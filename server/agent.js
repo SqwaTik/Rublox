@@ -13,6 +13,9 @@ import {
   runCommand, readFileTool, writeFileTool, editFileTool, listDirTool, makeDirTool,
   deletePathTool, moveTool, copyTool, appendFileTool, readLinesTool, statTool,
   existsTool, globTool, grepTool, treeTool, sysInfoTool, cwdTool,
+  clipboardReadTool, clipboardWriteTool, notifyTool, screenshotTool, downloadFileTool,
+  regQueryTool, regSetTool, runBackgroundTool, processOutputTool, processInputTool,
+  processStopTool, processListTool, gitTool, launchAppTool, focusWindowTool, sendKeysTool,
 } from './local-tools.js';
 import { TOOL_NAMES, WEB_TOOLS, PC_TOOLS, SPECIAL_TOOLS, STUDIO_TOOLS } from './llm/tools.js';
 
@@ -39,6 +42,9 @@ const NON_STUDIO_HANDLED = new Set([
   'run_command', 'read_file', 'write_file', 'edit_file', 'list_dir', 'make_dir',
   'read_lines', 'append_file', 'delete_path', 'move_path', 'copy_path',
   'glob_files', 'grep_files', 'tree', 'stat_path', 'path_exists', 'sys_info', 'get_cwd',
+  'clipboard_read', 'clipboard_write', 'notify', 'take_screenshot', 'download_file',
+  'reg_query', 'reg_set', 'run_background', 'process_output', 'process_input',
+  'process_stop', 'process_list', 'git', 'launch_app', 'focus_window', 'send_keys',
   'use_template', 'update_plan', 'plan_build',
 ]);
 
@@ -120,6 +126,22 @@ async function runTool(name, args) {
       return sysInfoTool();
     case 'get_cwd':
       return cwdTool();
+    case 'clipboard_read': return clipboardReadTool();
+    case 'clipboard_write': return clipboardWriteTool(args);
+    case 'notify': return notifyTool(args);
+    case 'take_screenshot': return screenshotTool(args);
+    case 'download_file': return downloadFileTool(args);
+    case 'reg_query': return regQueryTool(args);
+    case 'reg_set': return regSetTool(args);
+    case 'run_background': return runBackgroundTool(args);
+    case 'process_output': return processOutputTool(args);
+    case 'process_input': return processInputTool(args);
+    case 'process_stop': return processStopTool(args);
+    case 'process_list': return processListTool();
+    case 'git': return gitTool(args);
+    case 'launch_app': return launchAppTool(args);
+    case 'focus_window': return focusWindowTool(args);
+    case 'send_keys': return sendKeysTool(args);
 
     // ── Спец-инструменты (особая логика) ──
     case 'update_plan': {
@@ -185,6 +207,22 @@ function statusFor(name, args) {
     case 'path_exists': return `Проверяю ${args.path || ''}`.trim();
     case 'sys_info': return 'Читаю информацию о системе';
     case 'get_cwd': return 'Узнаю рабочий каталог';
+    case 'clipboard_read': return 'Читаю буфер обмена';
+    case 'clipboard_write': return 'Пишу в буфер обмена';
+    case 'notify': return 'Показываю уведомление';
+    case 'take_screenshot': return 'Делаю скриншот экрана';
+    case 'download_file': return `Скачиваю ${args.url || ''}`.trim();
+    case 'reg_query': return `Читаю реестр ${args.key || ''}`.trim();
+    case 'reg_set': return `Пишу в реестр ${args.key || ''}`.trim();
+    case 'run_background': return `Запускаю в фоне: ${(args.command || '').slice(0, 40)}`.trim();
+    case 'process_output': return `Читаю вывод ${args.id || ''}`.trim();
+    case 'process_input': return `Ввожу в процесс ${args.id || ''}`.trim();
+    case 'process_stop': return `Останавливаю процесс ${args.id || ''}`.trim();
+    case 'process_list': return 'Смотрю фоновые процессы';
+    case 'git': return `git ${args.action || 'status'}`.trim();
+    case 'launch_app': return `Запускаю ${args.app || ''}`.trim();
+    case 'focus_window': return `Фокус на окно ${args.title || ''}`.trim();
+    case 'send_keys': return 'Отправляю клавиши';
     case 'run_code': return 'Выполняю Lua-код в Studio';
     case 'insert_model': return `Вставляю ассет ${args.assetId || ''}`.trim();
     case 'get_console_output': return 'Читаю консоль Studio';
