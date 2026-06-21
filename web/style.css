@@ -221,8 +221,26 @@ html, body {
 .plan-row.pl-active .plan-box { color: var(--accent-2); }
 .plan-row.pl-todo { color: var(--muted); }
 
+/* В браузере (не Electron) прячем кнопки управления окном. */
+.in-browser .tb-controls { display: none; }
+
+/* Бейджи возможностей модели в списке. */
+.pop-model { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-caps { display: inline-flex; gap: 4px; flex: none; }
+.cap {
+  font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .3px;
+  padding: 1px 5px; border-radius: 5px; border: 1px solid var(--border-2); color: var(--muted);
+}
+.cap-vision { color: #c084fc; border-color: rgba(192,132,252,.4); }
+.cap-reasoning { color: #6ea0ff; border-color: rgba(110,160,255,.4); }
+.cap-code { color: #34d399; border-color: rgba(52,211,153,.4); }
+.cap-fast { color: #fbbf24; border-color: rgba(251,191,36,.4); }
+
 /* ── Индикатор лимитов (кольцо) ── */
-.pill-ring { padding: 5px 7px; }
+/* Просто кружок, без «пилюли»: убираем фон и рамку. */
+.pill-ring { padding: 4px; background: transparent; border: none; }
+.pill-ring:hover { background: rgba(255,255,255,0.06); }
 .usage-ring { display: block; }
 .usage-ring .ur-track { stroke: var(--border-2); }
 .usage-ring .ur-fill {

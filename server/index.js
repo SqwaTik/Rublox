@@ -289,8 +289,11 @@ setInterval(broadcastStatus, 4000);
 // Активные запуски агента по чатам — для прерывания (кнопка Stop).
 const runs = new Map(); // chatId -> AbortController
 
+let cidSeq = 0;
 wss.on('connection', (ws) => {
+  ws._cid = 'c' + (++cidSeq) + '_' + Date.now().toString(36);
   clients.add(ws);
+  ws.send(JSON.stringify({ type: 'hello', cid: ws._cid }));
   ws.send(JSON.stringify({ type: 'status', status: bridge.status() }));
   ws.send(JSON.stringify({ type: 'providers', providers: listProviders() }));
   ws.send(JSON.stringify({ type: 'chats', chats: listSessions() }));
@@ -318,9 +321,14 @@ wss.on('connection', (ws) => {
     // Активный чат передаётся клиентом; по умолчанию 'default'.
     const session = getSession(payload.chatId || 'default');
     const chatId = session.id;
-    // Все события тегируются chatId — клиент рендерит только активный чат
-    // (иначе ответ «утекает» в другой открытый чат).
-    const send = (obj) => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ ...obj, chatId }));
+    const origin = ws._cid;
+    // БРОДКАСТ всем подключённым клиентам (десктоп + браузер видят один чат в
+    // реалтайме). События тегируются chatId — клиент рендерит только активный
+    // чат; origin — id отправителя, чтобы не дублировать своё сообщение.
+    const send = (obj) => {
+      const msg = JSON.stringify({ ...obj, chatId, origin });
+      for (const c of clients) if (c.readyState === c.OPEN) c.send(msg);
+    };
 
     // Слеш-команды обрабатываются локально, без обращения к LLM.
     const cmd = await handleCommand(session, text);
@@ -335,6 +343,7 @@ wss.on('connection', (ws) => {
 
     // Обычное сообщение → агентный цикл с LLM.
     session.addUser(text);
+    send({ type: 'user', text }); // эхо для других клиентов (свой origin пропустит)
     send({ type: 'typing' });
     const ac = new AbortController();
     runs.set(chatId, ac);
