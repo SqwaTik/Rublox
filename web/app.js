@@ -13,6 +13,7 @@ let ws;
 let suggestIndex = -1;
 let streamEl = null;
 let activeChat = 'default';
+let chatOpened = false; // открыли ли уже первый чат при старте
 let myCid = null; // id этого клиента (для реалтайм-синхронизации между окнами)
 let providers = [];
 let templates = [];
@@ -109,7 +110,13 @@ function onMessage(m) {
       break;
     case 'status': renderStatus(m.status); break;
     case 'providers': providers = m.providers; renderProviderPickers(); break;
-    case 'chats': chats = m.chats; renderChats(); break;
+    case 'chats':
+      chats = m.chats; renderChats();
+      // При старте автоматически открываем первый чат (раньше окно было пустым,
+      // пока вручную не кликнешь по чату — микробаг).
+      if (!chatOpened && chats.length) { chatOpened = true; switchChat(chats[0].id); }
+      else if (!chatOpened && !chats.length) { chatOpened = true; renderWelcomeIfEmpty(); }
+      break;
     case 'session': applySession(m.info); break;
     case 'usage': lastUsage = m.usage || { available: false }; renderUsageRing(); break;
     case 'hello': myCid = m.cid; break;

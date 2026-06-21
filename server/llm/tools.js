@@ -949,6 +949,178 @@ export const TOOLS = [
     description: 'Текущий рабочий каталог процесса сервера Rublox.',
     parameters: { type: 'object', properties: {} },
   },
+  {
+    name: 'clipboard_read',
+    description: 'Прочитать текст из буфера обмена Windows.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'clipboard_write',
+    description: 'Записать текст в буфер обмена Windows.',
+    parameters: {
+      type: 'object',
+      properties: { text: { type: 'string', description: 'Что положить в буфер.' } },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'notify',
+    description: 'Показать системное уведомление Windows (всплывающее из трея).',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Заголовок.' },
+        message: { type: 'string', description: 'Текст уведомления.' },
+      },
+      required: ['message'],
+    },
+  },
+  {
+    name: 'take_screenshot',
+    description: 'Сделать скриншот всего экрана и сохранить в PNG-файл. Возвращает путь.',
+    parameters: {
+      type: 'object',
+      properties: { path: { type: 'string', description: 'Куда сохранить (по умолчанию в домашний каталог).' } },
+    },
+  },
+  {
+    name: 'download_file',
+    description: 'Скачать файл по URL (в т.ч. бинарный — картинки, архивы, exe) и сохранить на диск.',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'http(s)-ссылка.' },
+        path: { type: 'string', description: 'Куда сохранить (по умолчанию домашний каталог + имя из URL).' },
+      },
+      required: ['url'],
+    },
+  },
+  {
+    name: 'reg_query',
+    description: 'Прочитать ключ/значение реестра Windows (reg query).',
+    parameters: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Путь ключа, напр. HKCU\\Software\\Microsoft\\Windows\\CurrentVersion.' },
+        value: { type: 'string', description: 'Имя значения (необязательно).' },
+      },
+      required: ['key'],
+    },
+  },
+  {
+    name: 'reg_set',
+    description: 'Записать значение в реестр Windows (reg add). ОСТОРОЖНО — только по явной просьбе.',
+    parameters: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Путь ключа.' },
+        value: { type: 'string', description: 'Имя значения.' },
+        data: { type: 'string', description: 'Данные.' },
+        type: { type: 'string', description: 'Тип: REG_SZ (по умолч.), REG_DWORD и т.д.' },
+      },
+      required: ['key', 'value', 'data'],
+    },
+  },
+  {
+    name: 'run_background',
+    description:
+      'Запустить долгоживущий/фоновый процесс (сервер npm start, dev-сервер, watcher) и ' +
+      'СРАЗУ продолжить работу, не блокируясь. Возвращает id. Вывод читай через ' +
+      'process_output, ввод шли через process_input, останавливай process_stop.',
+    parameters: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', description: 'Команда для запуска.' },
+        cwd: { type: 'string', description: 'Рабочий каталог.' },
+      },
+      required: ['command'],
+    },
+  },
+  {
+    name: 'process_output',
+    description: 'Прочитать накопленный вывод фонового процесса по id (и его статус).',
+    parameters: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'id из run_background.' } },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'process_input',
+    description:
+      'Отправить ввод в stdin фонового/интерактивного процесса (ответ на запросы программы: ' +
+      'y/n, имя пакета в npm init, и т.п.).',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'id процесса.' },
+        input: { type: 'string', description: 'Что ввести.' },
+        noNewline: { type: 'boolean', description: 'Не добавлять перевод строки.' },
+      },
+      required: ['id', 'input'],
+    },
+  },
+  {
+    name: 'process_stop',
+    description: 'Остановить (убить) фоновый процесс по id.',
+    parameters: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'id процесса.' } },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'process_list',
+    description: 'Список запущенных фоновых процессов и их статусы.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'git',
+    description:
+      'Безопасный обзор git: action = status | diff | log | branch. Показывает состояние, ' +
+      'не делает опасных операций. Для коммитов/пушей используй run_command по явной просьбе.',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', description: 'status | diff | log | branch.' },
+        cwd: { type: 'string', description: 'Каталог репозитория.' },
+        staged: { type: 'boolean', description: 'Для diff — показать застейдженное.' },
+        limit: { type: 'number', description: 'Для log — сколько коммитов.' },
+      },
+    },
+  },
+  {
+    name: 'launch_app',
+    description: 'Запустить GUI-приложение (notepad, calc, путь к exe и т.п.) — не блокируясь.',
+    parameters: {
+      type: 'object',
+      properties: {
+        app: { type: 'string', description: 'Имя или путь программы.' },
+        args: { type: 'array', description: 'Аргументы командной строки.' },
+      },
+      required: ['app'],
+    },
+  },
+  {
+    name: 'focus_window',
+    description: 'Вывести окно на передний план по части его заголовка (Windows).',
+    parameters: {
+      type: 'object',
+      properties: { title: { type: 'string', description: 'Часть заголовка окна.' } },
+      required: ['title'],
+    },
+  },
+  {
+    name: 'send_keys',
+    description:
+      'Отправить нажатия клавиш активному окну (SendKeys): ввод текста, спецклавиши ' +
+      '{ENTER}{TAB}{ESC}, сочетания ^c (Ctrl+C), %{F4} (Alt+F4). Сначала сфокусируй окно.',
+    parameters: {
+      type: 'object',
+      properties: { keys: { type: 'string', description: 'Строка клавиш в формате SendKeys.' } },
+      required: ['keys'],
+    },
+  },
 ];
 
 // Веб-инструменты доступны ВСЕГДА (и в режиме Studio, и в режиме ПК).
@@ -961,6 +1133,10 @@ export const PC_TOOLS = new Set([
   'read_lines', 'append_file', 'delete_path', 'move_path', 'copy_path',
   'glob_files', 'grep_files', 'tree', 'stat_path', 'path_exists',
   'sys_info', 'get_cwd',
+  // Расширенные возможности ПК:
+  'clipboard_read', 'clipboard_write', 'notify', 'take_screenshot', 'download_file',
+  'reg_query', 'reg_set', 'run_background', 'process_output', 'process_input',
+  'process_stop', 'process_list', 'git', 'launch_app', 'focus_window', 'send_keys',
 ]);
 
 // Инструменты со спец-логикой в agent.js (не чистый проброс).

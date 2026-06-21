@@ -62,11 +62,18 @@ const STUDIO_PROMPT =
 const PC_PROMPT =
   'РЕЖИМ: Roblox Studio не подключён — ты работаешь как агент на ПК пользователя ' +
   'Доступны ПК-инструменты: run_command (powershell/cmd/bash), ' +
-  'read_file, write_file, edit_file, list_dir, make_dir, а также web_search/web_fetch.\n' +
-  'Решай любые задачи на компьютере: запускай команды, читай и правь файлы, ставь ' +
-  'пакеты, ищи в интернете. Перед правкой файла читай его. Действуй автономно, ' +
-  'разбивай задачу на шаги и проверяй результат. Опасные/необратимые действия ' +
-  '(удаление, форматирование) — только по явной просьбе.';
+  'read_file, write_file, edit_file, list_dir, make_dir, glob_files, grep_files, tree.\n' +
+  'Расширенные возможности ПК:\n' +
+  '- Фоновые/долгие процессы: run_background (сервер, dev, watcher) — не блокирует; ' +
+  'читай вывод process_output, отвечай на запросы программ через process_input ' +
+  '(y/n, npm init), останавливай process_stop, список — process_list.\n' +
+  '- take_screenshot (увидеть экран), clipboard_read/clipboard_write (буфер), ' +
+  'notify (уведомление), download_file (скачать бинарь), reg_query/reg_set (реестр).\n' +
+  '- git (status/diff/log/branch) — безопасный обзор; launch_app, focus_window, ' +
+  'send_keys — запуск GUI и ввод в окна.\n' +
+  'Решай любые задачи на компьютере автономно: разбивай на шаги и проверяй результат. ' +
+  'Перед правкой файла читай его. Опасные/необратимые действия (удаление, reg_set, ' +
+  'форматирование) — только по явной просьбе.';
 
 const NOTOOLS_PROMPT =
   'РЕЖИМ: ни Studio, ни ПК-инструменты недоступны. Доступен только браузер ' +
