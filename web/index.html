@@ -48,6 +48,9 @@
 
         <section class="chat" id="chat"></section>
 
+        <!-- Кнопка «вниз» — появляется при прокрутке вверх -->
+        <button class="scroll-btn hidden" id="scrollBtn" data-icon="arrowDown" title="Вниз"></button>
+
         <!-- ── Индикатор работы (как в Claude Code) ── -->
         <div class="worklog hidden" id="worklog">
           <span class="wl-spin">✻</span>
@@ -88,6 +91,7 @@
       <div class="pop-list" id="modelList"></div>
     </div>
     <div class="popover hidden" id="thinkPopover"><div class="pop-list" id="thinkList"></div></div>
+    <div class="toast-host" id="toastHost"></div>
     <div class="popover hidden" id="usagePopover"><div class="usage-body" id="usageBody"></div></div>
 
     <!-- Модалка настроек с вкладками -->

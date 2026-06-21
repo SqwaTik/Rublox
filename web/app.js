@@ -90,7 +90,7 @@ function onMessage(m) {
       break;
     case 'assistant_start':
       if (m.chatId) busyChats.add(m.chatId);
-      if (forActive) startStream();
+      if (forActive) { startStream(); setSendStop(true); }
       break;
     case 'assistant_delta': if (forActive) appendStream(m.text); break;
     case 'assistant_end': if (forActive) endStream(m.text); break;
@@ -118,7 +118,7 @@ function onMessage(m) {
       // Своё (origin === myCid) уже отрисовано оптимистично — пропускаем.
       if (m.origin && m.origin === myCid) break;
       if (m.chatId) busyChats.add(m.chatId);
-      if (forActive) { addMsg('user', m.text); startWork(); }
+      if (forActive) { addMsg('user', m.text); startWork(); setSendStop(true); }
       break;
   }
 }
@@ -167,12 +167,47 @@ function trimChat() {
   while (chat.children.length > MAX_DOM) chat.removeChild(chat.firstChild);
 }
 function addMsg(cls, text) {
+  clearWelcome();
   const { wrap, bubble } = buildMsg(cls, text);
   chat.appendChild(wrap);
   bindCopy(bubble);
   trimChat();
   scrollDown();
 }
+
+// Тост-уведомление сверху по центру с анимацией (вместо текста справа-снизу).
+function showToast(text, kind) {
+  const host = $('toastHost');
+  if (!host) return;
+  const el = document.createElement('div');
+  el.className = 'toast';
+  const ic = kind === 'ok' ? (window.ICON?.check || '') : '';
+  el.innerHTML = (ic ? ic : '') + `<span>${String(text).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]))}</span>`;
+  host.appendChild(el);
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 260); }, 2200);
+}
+
+// Инлайн-заметка по центру, без пузыря (напр. «Остановлено»).
+function addInlineNotice(text) {
+  const el = document.createElement('div');
+  el.className = 'chat-notice';
+  el.textContent = text;
+  chat.appendChild(el);
+  trimChat();
+  scrollDown();
+}
+
+// Приветствие в пустом чате (по центру, без блока).
+function renderWelcomeIfEmpty() {
+  if (chat.querySelector('.msg, .chat-notice')) return;
+  if (chat.querySelector('.chat-welcome')) return;
+  const el = document.createElement('div');
+  el.className = 'chat-welcome';
+  el.innerHTML = `<div class="cw-title">${window.t('welcomeEmpty') || 'В этом чате пока пусто'}</div>` +
+    `<div class="cw-hint">${window.t('welcomeHint') || ''}</div>`;
+  chat.appendChild(el);
+}
+function clearWelcome() { const w = chat.querySelector('.chat-welcome'); if (w) w.remove(); }
 
 // Иконка для разных инструментов (в карточке tool-call).
 function toolIcon(name) {
@@ -261,6 +296,7 @@ function renderBlueprint(args) {
 // Красивая карточка вызова инструмента: показываем РЕАЛЬНЫЙ код/действие.
 function renderToolCall(name, args) {
   args = args || {};
+  clearWelcome();
   if (name === 'update_plan') { renderPlan(args.steps); return; }
   if (name === 'plan_build') { renderBlueprint(args); return; }
   let md = '';
@@ -368,10 +404,11 @@ async function reloadMessages() {
   if (r && id === activeChat) { renderHistory(r.messages); applySession(r.info); }
 }
 function startStream() {
+  clearWelcome();
   const wrap = document.createElement('div');
   wrap.className = 'msg assistant';
   const bubble = document.createElement('div');
-  bubble.className = 'bubble'; bubble.dataset.raw = '';
+  bubble.className = 'bubble streaming'; bubble.dataset.raw = '';
   // Пока текста нет — показываем 3 анимированные точки вместо пустого пузыря.
   bubble.innerHTML = '<span class="typing-dots"><i></i><i></i><i></i></span>';
   wrap.appendChild(bubble); chat.appendChild(wrap);
@@ -383,15 +420,16 @@ function appendStream(chunk) {
   scheduleRender(streamEl);
   scrollDown();
 }
-// Плавный рендер: копим чанки и перерисовываем по requestAnimationFrame,
-// чтобы при большом объёме текста не было лагов и резких скачков.
+// Плавный стрим: во время печати показываем ПЛОСКИЙ текст (pre-wrap) — он
+// прирастает по символам без рывков. Тяжёлый markdown-рендер (с реflow кода,
+// списков и т.п.) делаем ОДИН раз в конце. Это убирает «дёрганье».
 let renderQueued = false;
 function scheduleRender(el) {
   if (renderQueued) return;
   renderQueued = true;
   requestAnimationFrame(() => {
     renderQueued = false;
-    if (el) el.innerHTML = window.mdRender(el.dataset.raw);
+    if (el) el.textContent = el.dataset.raw;
     scrollDown();
   });
 }
@@ -399,6 +437,7 @@ function endStream(finalText) {
   if (!streamEl) return;
   const raw = typeof finalText === 'string' && finalText.length ? finalText : streamEl.dataset.raw;
   if (!raw) { streamEl.parentElement.remove(); streamEl = null; return; }
+  streamEl.classList.remove('streaming');
   streamEl.innerHTML = window.mdRender(raw);
   bindCopy(streamEl); streamEl = null;
 }
@@ -501,6 +540,7 @@ async function switchChat(id) {
   // помечаем для перезагрузки истории по завершении (живой стрим мы пропустили).
   if (busyChats.has(id)) { startWork(); setSendStop(true); reloadOnDone.add(id); }
   else { stopWork(); setSendStop(false); }
+  renderWelcomeIfEmpty();
   renderChats();
 }
 
@@ -795,8 +835,15 @@ function renderProviderList() {
     const row = document.createElement('div');
     row.className = 'prov-row';
     const badge = p.hasKey ? `<span class="pr-badge ok">key</span>` : '';
-    row.innerHTML = `<div><div class="pr-name">${p.label}</div><div class="pr-sub">${p.id} · ${p.model || '—'}</div></div>${badge}`;
-    row.onclick = () => fillForm(p);
+    row.innerHTML = `<div class="pr-main"><div class="pr-name">${p.label}</div><div class="pr-sub">${p.id} · ${p.model || '—'}</div></div>` +
+      `<div class="pr-act">${badge}<button class="pr-del" title="${window.t('deleteProvider') || 'Удалить'}">${window.ICON.trash}</button></div>`;
+    row.querySelector('.pr-main').onclick = () => fillForm(p);
+    row.querySelector('.pr-del').onclick = async (e) => {
+      e.stopPropagation();
+      await fetch('/api/providers/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: p.id }) });
+      refreshProviders();
+      showToast((window.t('deleteProvider') || 'Удалено'), 'ok');
+    };
     list.appendChild(row);
   }
 }
@@ -845,7 +892,7 @@ $('pf-save').onclick = async () => {
   const hint = $('pf-hint'); const body = formBody();
   if (!body.id || !body.baseUrl) { hint.className = 'form-hint err'; hint.textContent = 'Need ID and Base URL'; return; }
   const r = await fetch('/api/providers', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
-  if (r.ok) { hint.className = 'form-hint ok'; hint.textContent = window.t('save') + ' ✓'; modelsCache[body.id] = null; refreshProviders(); }
+  if (r.ok) { hint.className = 'form-hint'; hint.textContent = ''; modelsCache[body.id] = null; refreshProviders(); showToast(window.t('saved') || 'Сохранено', 'ok'); }
   else { hint.className = 'form-hint err'; hint.textContent = r.error || '?'; }
 };
 $('pf-delete').onclick = async () => {
@@ -1007,14 +1054,10 @@ function renderThemeGrid() {
   for (const t of THEMES) {
     const card = document.createElement('div');
     card.className = 'theme-card' + (t.id === cur ? ' active' : '');
-    // Свотч: половина — фон темы, правая полоса (::after) — акцент.
+    // Круглый свотч: фон темы + диагональная половина акцента (CSS clip-path).
     card.innerHTML =
-      `<span class="theme-swatch" style="background:${t.bg}"></span>` +
+      `<span class="theme-swatch" style="background:${t.bg}"><span style="background:${t.accent}"></span></span>` +
       `<span class="theme-name">${t.name}</span>`;
-    const sw = card.querySelector('.theme-swatch');
-    sw.style.setProperty('background', t.bg);
-    // правую полоску акцента задаём инлайново через box-shadow-вставку
-    sw.innerHTML = `<span style="position:absolute;right:0;top:0;bottom:0;width:42%;background:${t.accent}"></span>`;
     card.onclick = () => {
       applyTheme(t.id);
       grid.querySelectorAll('.theme-card').forEach((c) => c.classList.remove('active'));
@@ -1066,6 +1109,8 @@ function stopActive() {
     ws.send(JSON.stringify({ type: 'stop', chatId: activeChat }));
   }
   busyChats.delete(activeChat);
+  endStream();
+  addInlineNotice(window.t('stopped') || 'Остановлено');
   stopWork();
   setSendStop(false);
 }

@@ -232,29 +232,43 @@ export class Session {
   // Авто-заголовок по теме (через LLM), если не переименован вручную.
   async autoTitle() {
     if (this.titleManual) return false;
+    // Только ОДИН раз: пока заголовок дефолтный. После переименования не трогаем.
+    if (this.title && this.title !== 'Новый чат') return false;
     if (this.messages.length < 2) return false;
     const firstUser = this.messages.find((m) => m.role === 'user');
     if (!firstUser) return false;
+    // Фолбэк-заголовок из первых слов сообщения (на случай мусора от модели).
+    const fallback = String(firstUser.content || '')
+      .replace(/\s+/g, ' ').trim().slice(0, 40) || 'Чат';
     try {
       const reply = await complete({
         provider: this.provider,
         system: 'Придумай короткий заголовок чата (3-5 слов, без кавычек и точки) ' +
-          'по теме первого сообщения. Ответь только заголовком.',
+          'по теме первого сообщения. Ответь ТОЛЬКО заголовком, без пояснений, ' +
+          'без кода и без тегов.',
         messages: [{ role: 'user', content: firstUser.content.slice(0, 500) }],
         model: this.model,
         temperature: 0.3,
         useTools: false,
       });
-      const t = (reply.text || '').trim().replace(/^["'«»]+|["'«».]+$/g, '').slice(0, 60);
-      if (t) {
-        this.title = t;
-        this.persist();
-        return true;
-      }
+      let t = String(reply.text || '')
+        .replace(/<[^>]*>/g, ' ')              // любые теги/XML (function_calls и пр.)
+        .replace(/[`*_#>{}\[\]]/g, ' ')        // markdown-мусор
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/^["'«»\-:]+|["'«».:\-]+$/g, '')
+        .slice(0, 50)
+        .trim();
+      // Если модель выдала мусор (осталась разметка, пусто, слишком коротко) — фолбэк.
+      if (!t || t.length < 2 || /[<>]/.test(t)) t = fallback;
+      this.title = t;
+      this.persist();
+      return true;
     } catch {
-      // молча оставляем дефолтный заголовок
+      this.title = fallback;
+      this.persist();
+      return true;
     }
-    return false;
   }
 }
 

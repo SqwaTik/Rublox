@@ -322,5 +322,11 @@ export async function runAgent(session, onEvent = () => {}, opts = {}) {
     }
   }
 
-  return 'Достигнут лимит шагов выполнения инструментов.';
+  // Лимит шагов исчерпан — всегда показываем финальное сообщение, чтобы было
+  // видно, что агент остановился (а не «завис»).
+  const limitMsg = 'Достиг лимита шагов за один ход. Если задача не завершена — напишите «продолжи».';
+  session.addAssistant(limitMsg, []);
+  onEvent('assistant_start', {});
+  onEvent('assistant_text', { text: limitMsg });
+  return limitMsg;
 }
