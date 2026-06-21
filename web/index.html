@@ -32,7 +32,6 @@
         <div class="sidebar-foot">
           <button class="ghost-btn" id="openSettings"><span data-icon="settings"></span> <span data-t="settings">Settings</span></button>
           <button class="ghost-btn" id="installPlugin"><span data-icon="download"></span> <span data-t="installPlugin">Install plugin</span></button>
-          <button class="ghost-btn danger" id="deleteAll"><span data-icon="trash"></span> <span data-t="deleteAll">Delete all chats</span></button>
         </div>
       </aside>
 
@@ -40,7 +39,7 @@
         <header class="topbar">
           <div class="topbar-left">
             <button class="icon-btn only-mobile" id="toggleSidebar" data-icon="menu"></button>
-            <span class="chat-title" id="chatTitle" title="Double-click to rename">Main chat</span>
+            <span class="chat-title" id="chatTitle" title="Double-click to rename"></span>
           </div>
           <button class="status-chip disconnected" id="studioStatus">
             <span data-icon="plug"></span> <span id="studioText" data-t="studioOff">Studio: disconnected</span>
@@ -77,6 +76,7 @@
       <div class="pop-head">
         <select id="popProvider"></select>
       </div>
+      <div class="model-filters" id="modelFilters"></div>
       <input class="pop-search" id="modelSearch" placeholder="Search model…" />
       <div class="pop-list" id="modelList"></div>
     </div>
@@ -88,6 +88,8 @@
         <div class="modal-head">
           <div class="tabs">
             <button class="tab active" data-tab="providers" data-t="providers">Providers</button>
+            <button class="tab" data-tab="plugins" data-t="plugins">Plugins</button>
+            <button class="tab" data-tab="connection" data-t="connection">Connection</button>
             <button class="tab" data-tab="appearance" data-t="appearance">Appearance</button>
             <button class="tab" data-tab="about" data-t="about">About</button>
           </div>
@@ -125,14 +127,57 @@
             <div class="form-hint" id="pf-hint"></div>
           </div>
 
+          <!-- вкладка Plugins (ИИ-скиллы) -->
+          <div class="tab-pane" data-pane="plugins">
+            <p class="form-hint" data-t="pluginsIntro"></p>
+            <input id="skill-search" class="skill-search" data-t-ph="pluginsSearch" placeholder="Search plugins…" />
+            <div class="skill-list" id="skillList"></div>
+            <hr class="sep" />
+            <h3 data-t="addPlugin">Add custom skill</h3>
+            <div class="form-grid">
+              <label><span data-t="name">Name</span><input id="sk-name" placeholder="My skill" /></label>
+              <label><span data-t="pluginDesc">Description</span><input id="sk-desc" placeholder="Short description" /></label>
+            </div>
+            <label class="full"><span data-t="pluginPrompt">Instruction for the AI</span>
+              <textarea id="sk-prompt" rows="4" data-t-ph="pluginPromptPh" placeholder="When this skill is on, the AI should…"></textarea>
+            </label>
+            <div class="form-actions">
+              <button class="primary-btn" id="sk-add" data-t="addPlugin">Add custom skill</button>
+            </div>
+          </div>
+
+          <!-- вкладка Connection -->
+          <div class="tab-pane" data-pane="connection">
+            <div class="conn-block">
+              <span class="conn-label" data-t="serverAddr">Server address</span>
+              <div class="conn-row">
+                <input id="conn-url" readonly value="http://localhost:8787" />
+                <button class="ghost-btn" id="conn-copy-url"><span data-icon="copy"></span></button>
+              </div>
+            </div>
+            <div class="conn-block">
+              <span class="conn-label" data-t="bridgeToken">Bridge token</span>
+              <div class="conn-row">
+                <input id="conn-token" type="text" readonly value="…" />
+                <button class="ghost-btn" id="conn-copy-token"><span data-icon="copy"></span> <span data-t="copy">Copy</span></button>
+                <button class="ghost-btn" id="conn-regen"><span data-icon="refresh"></span> <span data-t="regenerate">Regenerate</span></button>
+              </div>
+              <div class="conn-hint" data-t="tokenHint"></div>
+            </div>
+            <label class="set-row"><span data-t="pcAgentLabel">PC agent when Studio is off</span>
+              <input type="checkbox" id="set-pcagent" checked />
+            </label>
+          </div>
+
           <!-- вкладка Appearance -->
           <div class="tab-pane" data-pane="appearance">
             <label class="set-row"><span data-t="language">Language</span>
               <select id="set-lang"><option value="en">English</option><option value="ru">Русский</option></select>
             </label>
-            <label class="set-row"><span data-t="theme">Theme</span>
-              <select id="set-theme"><option value="red">Rublox Red</option><option value="dark">Neutral Dark</option></select>
-            </label>
+            <div class="set-row" style="display:block">
+              <span data-t="theme">Theme</span>
+              <div class="theme-grid" id="theme-grid"></div>
+            </div>
           </div>
 
           <!-- вкладка About -->

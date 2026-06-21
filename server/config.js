@@ -65,4 +65,11 @@ export const config = {
 
   compressThreshold: num(process.env.CONTEXT_COMPRESS_THRESHOLD, 6000),
   allowLocalExec: bool(process.env.ALLOW_LOCAL_EXEC, false),
+
+  // Prompt caching (Anthropic): кэш системного промпта и схем инструментов между
+  // запросами — главный рычаг экономии токенов. Отключить: PROMPT_CACHE=false.
+  promptCache: bool(process.env.PROMPT_CACHE, true),
+  // Локальный ПК-агент: ПК-инструменты, когда Studio не подключён.
+  // По умолчанию включён — это локальное приложение пользователя.
+  pcAgent: bool(process.env.PC_AGENT, true),
 };

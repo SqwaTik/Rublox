@@ -49,9 +49,23 @@
           i++;
         }
         i++; // пропустить закрывающую ```
-        const code = escapeHtml(buf.join('\n'));
+        const copyIcon = (window.ICON && window.ICON.copy) || 'copy';
         const label = lang ? `<span class="code-lang">${lang}</span>` : '';
-        html += `<div class="codeblock">${label}<button class="copy-btn">copy</button><pre><code>${code}</code></pre></div>`;
+        // diff-блок: подсветка добавленных (+) и удалённых (-) строк.
+        if (lang === 'diff') {
+          const rows = buf.map((ln) => {
+            const safe = escapeHtml(ln);
+            let cls = 'diff-ctx';
+            if (/^\+(?!\+\+)/.test(ln)) cls = 'diff-add';
+            else if (/^-(?!--)/.test(ln)) cls = 'diff-del';
+            else if (/^@@/.test(ln) || /^(\+\+\+|---)/.test(ln)) cls = 'diff-meta';
+            return `<span class="diff-line ${cls}">${safe || ' '}</span>`;
+          }).join('\n');
+          html += `<div class="codeblock diff"><span class="code-lang">diff</span><button class="copy-btn" title="Copy">${copyIcon}</button><pre><code>${rows}</code></pre></div>`;
+          continue;
+        }
+        const code = escapeHtml(buf.join('\n'));
+        html += `<div class="codeblock">${label}<button class="copy-btn" title="Copy">${copyIcon}</button><pre><code>${code}</code></pre></div>`;
         continue;
       }
 

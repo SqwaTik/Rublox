@@ -44,7 +44,15 @@ async function readSSE(res, onEvent) {
   const decoder = new TextDecoder();
   let buffer = '';
   while (true) {
-    const { value, done } = await reader.read();
+    let chunk;
+    try {
+      chunk = await reader.read();
+    } catch (err) {
+      // Прерывание пользователем (AbortController) — выходим тихо, отдаём накопленное.
+      if (err && (err.name === 'AbortError' || /abort/i.test(err.message || ''))) break;
+      throw err;
+    }
+    const { value, done } = chunk;
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     let nl;
@@ -84,7 +92,7 @@ function canonToAnthropic(messages) {
   return out;
 }
 
-function anthropicBody(p, { system, messages, model, temperature, maxTokens, useTools, thinking }, stream) {
+function anthropicBody(p, { system, messages, model, temperature, maxTokens, useTools, studioConnected, pcAllowed, thinking }, stream) {
   const body = {
     model: model || p.model,
     max_tokens: maxTokens,
@@ -97,9 +105,33 @@ function anthropicBody(p, { system, messages, model, temperature, maxTokens, use
     body.thinking = { type: 'enabled', budget_tokens: thinking.budget };
     body.temperature = 1;
   }
-  if (useTools) body.tools = toolsForAnthropic();
+  if (useTools) body.tools = toolsForAnthropic({ studioConnected, pcAllowed });
   if (stream) body.stream = true;
+  if (config.promptCache !== false && p.cache !== false) applyAnthropicCaching(body);
   return body;
+}
+
+// Prompt caching: помечаем стабильный префикс (system, схемы tools и последнее
+// сообщение истории) cache_control. Anthropic кэширует совпадающий префикс между
+// запросами → до ~90% экономии входных токенов на повторных шагах диалога.
+function applyAnthropicCaching(body) {
+  const mark = { type: 'ephemeral' };
+  if (typeof body.system === 'string' && body.system) {
+    body.system = [{ type: 'text', text: body.system, cache_control: mark }];
+  }
+  if (Array.isArray(body.tools) && body.tools.length) {
+    const i = body.tools.length - 1;
+    body.tools[i] = { ...body.tools[i], cache_control: mark };
+  }
+  const last = body.messages[body.messages.length - 1];
+  if (last) {
+    if (typeof last.content === 'string') {
+      last.content = [{ type: 'text', text: last.content, cache_control: mark }];
+    } else if (Array.isArray(last.content) && last.content.length) {
+      const j = last.content.length - 1;
+      last.content[j] = { ...last.content[j], cache_control: mark };
+    }
+  }
 }
 
 function anthropicHeaders(p) {
@@ -137,6 +169,7 @@ async function streamAnthropic(p, opts, onDelta) {
     method: 'POST',
     headers: anthropicHeaders(p),
     body: JSON.stringify(anthropicBody(p, opts, true)),
+    signal: opts.signal,
   });
 
   let text = '';
@@ -203,7 +236,7 @@ function canonToOpenAI(system, messages) {
   return out;
 }
 
-function openaiBody(p, { system, messages, model, temperature, maxTokens, useTools, thinking }, stream) {
+function openaiBody(p, { system, messages, model, temperature, maxTokens, useTools, studioConnected, pcAllowed, thinking }, stream) {
   const body = {
     model: model || p.model,
     temperature,
@@ -212,7 +245,7 @@ function openaiBody(p, { system, messages, model, temperature, maxTokens, useToo
   };
   // reasoning_effort для reasoning-моделей (o-серия, gpt-5 и совместимые).
   if (thinking && thinking.effort) body.reasoning_effort = thinking.effort;
-  if (useTools) body.tools = toolsForOpenAI();
+  if (useTools) body.tools = toolsForOpenAI({ studioConnected, pcAllowed });
   if (stream) {
     body.stream = true;
     body.stream_options = { include_usage: false };
@@ -252,6 +285,7 @@ async function streamOpenAI(p, opts, onDelta) {
     method: 'POST',
     headers: openaiHeaders(p),
     body: JSON.stringify(openaiBody(p, opts, true)),
+    signal: opts.signal,
   });
 
   let text = '';
@@ -297,18 +331,18 @@ function resolve(provider) {
   return p;
 }
 
-export async function complete({ provider, system, messages, model, temperature, maxTokens, useTools, thinking }) {
+export async function complete({ provider, system, messages, model, temperature, maxTokens, useTools, studioConnected, pcAllowed, thinking, signal }) {
   const p = resolve(provider);
-  const opts = { system, messages, model, temperature, maxTokens: maxTokens || config.maxTokens, useTools, thinking };
+  const opts = { system, messages, model, temperature, maxTokens: maxTokens || config.maxTokens, useTools, studioConnected, pcAllowed, thinking, signal };
   return effectiveKind(p.kind) === 'anthropic' ? callAnthropic(p, opts) : callOpenAI(p, opts);
 }
 
 export async function streamComplete(
-  { provider, system, messages, model, temperature, maxTokens, useTools, thinking },
+  { provider, system, messages, model, temperature, maxTokens, useTools, studioConnected, pcAllowed, thinking, signal },
   onDelta = () => {}
 ) {
   const p = resolve(provider);
-  const opts = { system, messages, model, temperature, maxTokens: maxTokens || config.maxTokens, useTools, thinking };
+  const opts = { system, messages, model, temperature, maxTokens: maxTokens || config.maxTokens, useTools, studioConnected, pcAllowed, thinking, signal };
   return effectiveKind(p.kind) === 'anthropic'
     ? streamAnthropic(p, opts, onDelta)
     : streamOpenAI(p, opts, onDelta);
