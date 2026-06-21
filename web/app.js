@@ -13,6 +13,7 @@ let ws;
 let suggestIndex = -1;
 let streamEl = null;
 let activeChat = 'default';
+let myCid = null; // id этого клиента (для реалтайм-синхронизации между окнами)
 let providers = [];
 let templates = [];
 let chats = [];
@@ -111,6 +112,14 @@ function onMessage(m) {
     case 'chats': chats = m.chats; renderChats(); break;
     case 'session': applySession(m.info); break;
     case 'usage': lastUsage = m.usage || { available: false }; renderUsageRing(); break;
+    case 'hello': myCid = m.cid; break;
+    case 'user':
+      // Сообщение из ДРУГОГО клиента (десктоп/браузер) — показываем в реалтайме.
+      // Своё (origin === myCid) уже отрисовано оптимистично — пропускаем.
+      if (m.origin && m.origin === myCid) break;
+      if (m.chatId) busyChats.add(m.chatId);
+      if (forActive) { addMsg('user', m.text); startWork(); }
+      break;
   }
 }
 
@@ -675,7 +684,10 @@ function renderModelFilters() {
     const chip = document.createElement('span');
     chip.className = 'mf-chip' + (modelFilterKey === key ? ' active' : '');
     chip.textContent = window.t('filter' + cap(key));
-    chip.onclick = () => {
+    chip.onclick = (ev) => {
+      // Без этого пересборка чипов отрывает e.target от DOM, и общий
+      // document-handler принимает клик за «вне поповера» и закрывает меню.
+      ev.stopPropagation();
       modelFilterKey = key;
       modelFilterRe = rx ? new RegExp(rx, 'i') : null;
       renderModelFilters();
@@ -703,8 +715,11 @@ async function loadModelList(filter = '') {
   if (!shown.length) { list.innerHTML = '<div class="pop-item">No models match</div>'; return; }
   for (const m of shown) {
     const item = document.createElement('div');
-    item.className = 'pop-item' + (m === current.model && pid === current.provider ? ' active' : '');
-    item.textContent = m;
+    item.className = 'pop-item pop-model' + (m === current.model && pid === current.provider ? ' active' : '');
+    const caps = modelCaps(m);
+    const badges = caps.map((c) => `<span class="cap cap-${c.key}">${c.label}</span>`).join('');
+    item.innerHTML = `<span class="pm-name">${escUsage(m)}</span>` +
+      (badges ? `<span class="pm-caps">${badges}</span>` : '');
     item.onclick = () => {
       current.provider = pid; current.model = m;
       send('/model ' + pid); setTimeout(() => send('/setmodel ' + m), 60);
@@ -712,6 +727,18 @@ async function loadModelList(filter = '') {
     };
     list.appendChild(item);
   }
+}
+
+// Реальные возможности модели по эвристике имени (теми же паттернами, что фильтры).
+// Если имя не матчит — бейджа НЕ будет (не выдумываем способности, которых нет).
+const CAP_DEFS = [
+  { key: 'vision', label: 'Vision', rx: /vision|vl|gpt-4o|4o|gemini|claude-3|claude-opus|claude-sonnet|pixtral|multimodal|image/i },
+  { key: 'reasoning', label: 'Reasoning', rx: /o1|o3|o4|r1|reason|think|gpt-5|opus|sonnet|grok|deepseek-r/i },
+  { key: 'code', label: 'Code', rx: /code|coder|codestral|deepseek|qwen.*c|starcoder|devstral/i },
+  { key: 'fast', label: 'Fast', rx: /mini|flash|haiku|lite|turbo|fast|nano|small|8b|7b|3b/i },
+];
+function modelCaps(name) {
+  return CAP_DEFS.filter((c) => c.rx.test(name));
 }
 
 $('thinkPill').onclick = (e) => {
@@ -738,7 +765,7 @@ function togglePopover(pop, anchor, after) {
   pop.classList.remove('hidden');
   if (after) after();
 }
-function closePopovers() { modelPopover.classList.add('hidden'); $('thinkPopover').classList.add('hidden'); }
+function closePopovers() { modelPopover.classList.add('hidden'); $('thinkPopover').classList.add('hidden'); $('usagePopover').classList.add('hidden'); }
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.popover') && !e.target.closest('.pill')) closePopovers();
 });
@@ -1092,5 +1119,8 @@ async function init() {
   updatePills();
   renderUsageRing(); // нарисовать пустое кольцо сразу
   loadUsage();
+  // Кнопки окна (свернуть/развернуть/закрыть) нужны только в десктоп-приложении
+  // (Electron). В обычном браузере их прячем — там окном управляет сам браузер.
+  if (!window.rublox) document.body.classList.add('in-browser');
 }
 init();

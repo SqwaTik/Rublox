@@ -247,8 +247,13 @@ function openaiBody(p, { system, messages, model, temperature, maxTokens, useToo
     max_tokens: maxTokens,
     messages: canonToOpenAI(system, messages),
   };
-  // reasoning_effort для reasoning-моделей (o-серия, gpt-5 и совместимые).
-  if (thinking && thinking.effort) body.reasoning_effort = thinking.effort;
+  // reasoning_effort ТОЛЬКО для reasoning-моделей (o1/o3/o4, gpt-5, *-reasoner и
+  // т.п.). Обычные модели (gpt-4o, llama, deepseek-chat, Claude через роутер) на
+  // этот параметр отвечают ошибкой — раньше из-за этого multi/openai «не работали
+  // ни на одном провайдере». Определяем по имени модели.
+  const mname = String(model || p.model || '');
+  const isReasoning = /(^|[^a-z])o[1345]([^a-z]|$)|gpt-5|reasoner|reasoning|think|deepseek-r|grok-4|qwq/i.test(mname);
+  if (thinking && thinking.effort && isReasoning) body.reasoning_effort = thinking.effort;
   if (useTools) body.tools = toolsForOpenAI({ studioConnected, pcAllowed });
   if (stream) {
     body.stream = true;
@@ -261,6 +266,10 @@ function openaiHeaders(p) {
   return {
     'content-type': 'application/json',
     authorization: `Bearer ${p.apiKey || 'not-needed'}`,
+    // Некоторые шлюзы/CDN (Cloudflare и пр.) без User-Agent отдают странные коды
+    // (305/403/503) вместо нормального ответа — представляемся обычным клиентом.
+    'user-agent': 'Rublox/0.2 (+https://github.com/SqwaTik/roblox-ai-assistant)',
+    'accept': 'application/json',
     ...(p.headers || {}),
   };
 }

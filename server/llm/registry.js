@@ -154,11 +154,20 @@ export async function fetchModels(id) {
     const res = await fetch(`${p.baseUrl}/models`, {
       headers: {
         authorization: `Bearer ${p.apiKey || 'not-needed'}`,
+        'user-agent': 'Rublox/0.2 (+https://github.com/SqwaTik/roblox-ai-assistant)',
+        accept: 'application/json',
         ...(p.headers || {}),
       },
     });
     const t = await res.text();
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${t.slice(0, 200)}`);
+    if (!res.ok) {
+      // 3xx (напр. 305 Use Proxy) — почти всегда неверный baseUrl или адрес
+      // требует прокси/редирект, который мы не следуем. Поясняем по-человечески.
+      const hint = res.status >= 300 && res.status < 400
+        ? ` — адрес перенаправляет (${res.status}); проверьте baseUrl (нужен прямой путь до /v1).`
+        : '';
+      throw new Error(`HTTP ${res.status}: ${t.slice(0, 160)}${hint}`);
+    }
     // Если вернулся HTML (страница, редирект, неверный baseUrl) — JSON.parse даст
     // невнятное "Unexpected token '<'". Ловим и показываем понятную причину.
     let data;
