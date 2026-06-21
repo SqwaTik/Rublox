@@ -18,15 +18,26 @@ class RobloxBridge {
     this.waiters = []; // ресолверы long-poll, ждущие команду
   }
 
+  // Колбэк, вызываемый при смене состояния подключения (для мгновенного
+  // broadcast статуса в веб-клиент без ожидания периодического таймера).
+  onChange = null;
+
   isConnected() {
-    // Считаем подключённым, если плагин отмечался последние 15 секунд.
-    return this.connected && Date.now() - this.lastSeen < 15000;
+    // Окно 40с: long-poll плагина висит до 25с, между поллами бывает пауза,
+    // поэтому окно должно быть заметно больше периода опроса — иначе статус
+    // «мигает» (то подключён, то нет).
+    return this.connected && Date.now() - this.lastSeen < 40000;
   }
 
   markConnected(info) {
+    const wasConnected = this.isConnected();
+    const oldPlace = this.studioInfo && this.studioInfo.placeName;
     this.connected = true;
     this.lastSeen = Date.now();
     if (info) this.studioInfo = { ...this.studioInfo, ...info };
+    const newPlace = this.studioInfo && this.studioInfo.placeName;
+    // Только что подключились или впервые узнали имя плейса → уведомляем UI.
+    if ((!wasConnected || oldPlace !== newPlace) && this.onChange) this.onChange();
   }
 
   markDisconnected() {
@@ -38,6 +49,7 @@ class RobloxBridge {
     }
     this.pending.clear();
     this.queue = [];
+    if (this.onChange) this.onChange();
   }
 
   // Вызывается агентом: поставить команду и дождаться результата от плагина.

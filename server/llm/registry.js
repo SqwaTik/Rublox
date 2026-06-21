@@ -157,11 +157,21 @@ export async function fetchModels(id) {
         ...(p.headers || {}),
       },
     });
-    if (!res.ok) {
-      const t = await res.text();
-      throw new Error(`HTTP ${res.status}: ${t.slice(0, 200)}`);
+    const t = await res.text();
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${t.slice(0, 200)}`);
+    // Если вернулся HTML (страница, редирект, неверный baseUrl) — JSON.parse даст
+    // невнятное "Unexpected token '<'". Ловим и показываем понятную причину.
+    let data;
+    try {
+      data = JSON.parse(t);
+    } catch {
+      const looksHtml = /^\s*</.test(t);
+      throw new Error(
+        looksHtml
+          ? `Адрес ${p.baseUrl}/models вернул HTML, а не JSON — проверьте baseUrl (нужен путь до /v1).`
+          : `Ответ /models не является JSON: ${t.slice(0, 160)}`
+      );
     }
-    const data = await res.json();
     const list = (data.data || data.models || [])
       .map((m) => (typeof m === 'string' ? m : m.id || m.name))
       .filter(Boolean);

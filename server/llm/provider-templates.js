@@ -14,6 +14,11 @@ export const PROVIDER_TEMPLATES = [
     note: 'Крупнейший роутер: сотни моделей всех вендоров.',
   },
   {
+    id: 'local', label: 'Local (свои модели)', kind: 'openai',
+    baseUrl: 'http://localhost:11434/v1', model: '',
+    note: 'Скачанные модели: Ollama (11434) / LM Studio (1234) / vLLM. Ключ не нужен.',
+  },
+  {
     id: 'agentrouter', label: 'AgentRouter', kind: 'anthropic',
     baseUrl: 'https://agentrouter.org', model: 'claude-opus-4-8',
     note: 'Anthropic-совместимый прокси (Claude Code / Codex / Gemini).',

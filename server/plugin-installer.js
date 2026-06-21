@@ -8,19 +8,22 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir, platform } from 'node:os';
 import { config } from './config.js';
+import { getBridgeToken } from './app-config.js';
 
 // Исходник плагина: в dev — в rootDir/plugin, в упакованном — в resources/plugin.
 function findPluginLua() {
-  const candidates = [
-    join(config.rootDir, 'plugin', 'AIAssistantPlugin.server.lua'),
-    process.resourcesPath
-      ? join(process.resourcesPath, 'plugin', 'AIAssistantPlugin.server.lua')
-      : null,
+  const names = ['RubloxPlugin.server.lua', 'AIAssistantPlugin.server.lua'];
+  const dirs = [
+    join(config.rootDir, 'plugin'),
+    process.resourcesPath ? join(process.resourcesPath, 'plugin') : null,
   ].filter(Boolean);
-  for (const c of candidates) {
-    if (existsSync(c)) return c;
+  for (const d of dirs) {
+    for (const n of names) {
+      const c = join(d, n);
+      if (existsSync(c)) return c;
+    }
   }
-  return candidates[0];
+  return join(dirs[0], names[0]);
 }
 
 const buildDir = join(config.dataDir, 'build');
@@ -30,20 +33,30 @@ function cdataSafe(src) {
   return src.replace(/\]\]>/g, ']]]]><![CDATA[>');
 }
 
+// Подставляет актуальные URL сервера и токен прямо в исходник плагина, чтобы
+// пользователю не нужно было вводить их вручную — достаточно нажать Connect.
+function injectConfig(lua) {
+  const url = `http://localhost:${config.port}`;
+  const token = getBridgeToken();
+  return lua
+    .replace(/local serverUrl = "[^"]*"/, `local serverUrl = "${url}"`)
+    .replace(/local token = "[^"]*"/, `local token = "${token}"`);
+}
+
 // Генерирует модель .rbxm (XML внутри) с одним Script — исходником плагина.
 export function buildRbxm() {
-  const lua = readFileSync(findPluginLua(), 'utf8');
+  const lua = injectConfig(readFileSync(findPluginLua(), 'utf8'));
   const xml = `<roblox version="4">
   <Item class="Script" referent="RBX0">
     <Properties>
-      <string name="Name">AIAssistantPlugin</string>
+      <string name="Name">RubloxPlugin</string>
       <ProtectedString name="Source"><![CDATA[${cdataSafe(lua)}]]></ProtectedString>
       <token name="RunContext">0</token>
     </Properties>
   </Item>
 </roblox>`;
   if (!existsSync(buildDir)) mkdirSync(buildDir, { recursive: true });
-  const out = join(buildDir, 'AIAssistantPlugin.rbxm');
+  const out = join(buildDir, 'Rublox.rbxm');
   writeFileSync(out, xml, 'utf8');
   return out;
 }
@@ -69,15 +82,16 @@ export function installPlugin() {
   const rbxm = buildRbxm();
   const dir = pluginsDir();
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const dest = join(dir, 'AIAssistantPlugin.rbxm');
+  const dest = join(dir, 'Rublox.rbxm');
   writeFileSync(dest, readFileSync(rbxm));
   return {
     ok: true,
     installedTo: dest,
     pluginsDir: dir,
     message:
-      'Плагин установлен в папку плагинов Roblox. Перезапустите Studio (или ' +
-      'переоткройте плейс) — AIAssistantPlugin появится на вкладке Plugins.',
+      'Плагин Rublox установлен (URL и токен уже встроены). Перезапустите Studio ' +
+      'или переоткройте плейс — Rublox появится на вкладке Plugins. Затем нажмите ' +
+      'Connect в панели плагина.',
   };
 }
 

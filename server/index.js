@@ -13,12 +13,14 @@ import {
   getSession, createSession, deleteSession, listSessions,
 } from './session.js';
 import { handleCommand } from './commands.js';
-import { runAgent } from './agent.js';
+import { runAgent, validateTools } from './agent.js';
 import {
   listProviders, upsertProvider, deleteProvider, fetchModels,
 } from './llm/registry.js';
 import { PROVIDER_TEMPLATES } from './llm/provider-templates.js';
 import { installPlugin } from './plugin-installer.js';
+import { getBridgeToken, setBridgeToken, regenerateBridgeToken, getPcAgent, setPcAgent } from './app-config.js';
+import { listSkills, setSkillEnabled, addCustomSkill, removeCustomSkill } from './skills.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const webDir = join(__dirname, '..', 'web');
@@ -47,7 +49,7 @@ async function readBody(req) {
 function checkAuth(req) {
   const header = req.headers['authorization'] || '';
   const token = header.replace(/^Bearer\s+/i, '');
-  return token === config.bridgeToken;
+  return token === getBridgeToken();
 }
 
 async function serveStatic(req, res) {
@@ -71,6 +73,14 @@ async function serveStatic(req, res) {
 // ── REST для плагина Roblox ────────────────────────────
 async function handlePluginApi(req, res, url) {
   if (!checkAuth(req)) return sendJson(res, 401, { error: 'Неверный токен' });
+
+  if (url === '/api/roblox/ping' && req.method === 'POST') {
+    // Лёгкий тест связи при нажатии Connect в плагине (токен уже проверен выше).
+    const body = await readBody(req);
+    bridge.markConnected(body.studioInfo);
+    broadcastStatus();
+    return sendJson(res, 200, { ok: true, placeName: body.studioInfo?.placeName || null });
+  }
 
   if (url === '/api/roblox/poll' && req.method === 'POST') {
     const body = await readBody(req);
@@ -178,6 +188,48 @@ async function handleAppApi(req, res, url) {
     return sendJson(res, 200, { ok: true, chats: listSessions() });
   }
 
+  // Bridge-токен для плагина Studio (показывается в настройках)
+  if (url === '/api/bridge-token' && req.method === 'GET')
+    return sendJson(res, 200, { token: getBridgeToken(), port: config.port });
+
+  if (url === '/api/bridge-token' && req.method === 'POST') {
+    const body = await readBody(req);
+    return sendJson(res, 200, { token: setBridgeToken(body.token), port: config.port });
+  }
+
+  if (url === '/api/bridge-token/regenerate' && req.method === 'POST')
+    return sendJson(res, 200, { token: regenerateBridgeToken(), port: config.port });
+
+  // Тумблер локального ПК-агента
+  if (url === '/api/pc-agent' && req.method === 'GET')
+    return sendJson(res, 200, { enabled: getPcAgent() });
+
+  if (url === '/api/pc-agent' && req.method === 'POST') {
+    const body = await readBody(req);
+    return sendJson(res, 200, { enabled: setPcAgent(body.enabled) });
+  }
+
+  // ── ИИ-плагины (скиллы) ──
+  if (url === '/api/skills' && req.method === 'GET')
+    return sendJson(res, 200, { skills: listSkills() });
+
+  if (url === '/api/skills/toggle' && req.method === 'POST') {
+    const body = await readBody(req);
+    return sendJson(res, 200, { skills: setSkillEnabled(body.id, body.enabled) });
+  }
+
+  if (url === '/api/skills/add' && req.method === 'POST') {
+    const body = await readBody(req);
+    if (!body.name || !body.prompt)
+      return sendJson(res, 400, { error: 'Нужны name и prompt' });
+    return sendJson(res, 200, { skills: addCustomSkill(body) });
+  }
+
+  if (url === '/api/skills/remove' && req.method === 'POST') {
+    const body = await readBody(req);
+    return sendJson(res, 200, { skills: removeCustomSkill(body.id) });
+  }
+
   // Установка плагина в Roblox Studio
   if (url === '/api/install-plugin' && req.method === 'POST') {
     try {
@@ -221,8 +273,13 @@ function broadcastProviders() {
   }
 }
 
-// Периодически рассылаем статус соединения с Roblox.
-setInterval(broadcastStatus, 5000);
+// Мгновенный broadcast при смене состояния плагина (подключение/отключение/смена плейса).
+bridge.onChange = broadcastStatus;
+// Периодическая страховка (на случай пропущенного события).
+setInterval(broadcastStatus, 4000);
+
+// Активные запуски агента по чатам — для прерывания (кнопка Stop).
+const runs = new Map(); // chatId -> AbortController
 
 wss.on('connection', (ws) => {
   clients.add(ws);
@@ -237,6 +294,14 @@ wss.on('connection', (ws) => {
     } catch {
       return;
     }
+
+    // Прерывание текущего запуска в чате.
+    if (payload.type === 'stop') {
+      const ac = runs.get(payload.chatId || 'default');
+      if (ac) ac.abort();
+      return;
+    }
+
     if (payload.type !== 'message') return;
 
     const text = String(payload.text || '').trim();
@@ -244,7 +309,10 @@ wss.on('connection', (ws) => {
 
     // Активный чат передаётся клиентом; по умолчанию 'default'.
     const session = getSession(payload.chatId || 'default');
-    const send = (obj) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(obj));
+    const chatId = session.id;
+    // Все события тегируются chatId — клиент рендерит только активный чат
+    // (иначе ответ «утекает» в другой открытый чат).
+    const send = (obj) => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ ...obj, chatId }));
 
     // Слеш-команды обрабатываются локально, без обращения к LLM.
     const cmd = await handleCommand(session, text);
@@ -260,6 +328,8 @@ wss.on('connection', (ws) => {
     // Обычное сообщение → агентный цикл с LLM.
     session.addUser(text);
     send({ type: 'typing' });
+    const ac = new AbortController();
+    runs.set(chatId, ac);
     try {
       await runAgent(session, (evType, d) => {
         if (evType === 'status') send({ type: 'status_work', text: d.text, tokens: d.tokens });
@@ -269,10 +339,12 @@ wss.on('connection', (ws) => {
         else if (evType === 'tool_call') send({ type: 'tool', name: d.name, args: d.args });
         else if (evType === 'tool_result')
           send({ type: 'tool_result', name: d.name, ok: d.ok, result: d.result });
-      });
+      }, { signal: ac.signal });
       await session.maybeCompress();
     } catch (err) {
       send({ type: 'error', text: err.message });
+    } finally {
+      runs.delete(chatId);
     }
     await session.autoTitle(); // авто-заголовок по теме, если не переименован
     session.persist();
@@ -283,6 +355,16 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => clients.delete(ws));
 });
+
+// Самопроверка инструментов ДО старта — гарантия, что LLM не словит
+// «Неизвестный инструмент». При рассинхроне сервер не стартует.
+try {
+  const v = validateTools();
+  console.log(`Инструменты OK: всего ${v.total} (studio ${v.studio}, pc ${v.pc}, web ${v.web})`);
+} catch (err) {
+  console.error('ОШИБКА конфигурации инструментов:\n' + err.message);
+  process.exit(1);
+}
 
 server.listen(config.port, () => {
   console.log(`Rublox — сервер на http://localhost:${config.port}`);
