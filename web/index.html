@@ -64,6 +64,13 @@
           <!-- минипикеры СПРАВА -->
           <div class="composer-bar">
             <div class="spacer"></div>
+            <button class="pill pill-ring" id="usagePill" title="Limits">
+              <svg class="usage-ring" viewBox="0 0 24 24" width="18" height="18">
+                <circle class="ur-track" cx="12" cy="12" r="9" fill="none" stroke-width="3"></circle>
+                <circle class="ur-fill" cx="12" cy="12" r="9" fill="none" stroke-width="3"
+                  stroke-linecap="round" transform="rotate(-90 12 12)"></circle>
+              </svg>
+            </button>
             <button class="pill" id="thinkPill"><span data-icon="brain"></span> <span id="thinkPillText">High</span> <span class="chev" data-icon="chevron"></span></button>
             <button class="pill" id="modelPill"><span data-icon="cpu"></span> <span id="modelPillText">No model</span> <span class="chev" data-icon="chevron"></span></button>
           </div>
@@ -81,6 +88,7 @@
       <div class="pop-list" id="modelList"></div>
     </div>
     <div class="popover hidden" id="thinkPopover"><div class="pop-list" id="thinkList"></div></div>
+    <div class="popover hidden" id="usagePopover"><div class="usage-body" id="usageBody"></div></div>
 
     <!-- Модалка настроек с вкладками -->
     <div class="modal-overlay hidden" id="settingsOverlay">

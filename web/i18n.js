@@ -51,6 +51,11 @@ window.I18N = {
     pluginPrompt: 'Instruction for the AI',
     pluginPromptPh: 'When this skill is on, the AI should…',
     custom: 'custom',
+    limitsTitle: 'Limits',
+    limitsNone: 'No limit data — the provider does not report rate limits.',
+    limitsRequests: 'Requests',
+    limitsTokens: 'Tokens',
+    limitsReset: 'Reset',
     aboutText: 'Rublox — AI assistant for Roblox Studio. Chat with any LLM provider, ' +
       'connect a Studio plugin and edit your place from inside. When Studio is off, ' +
       'Rublox works on your PC like a coding agent.',
@@ -104,6 +109,11 @@ window.I18N = {
     pluginPrompt: 'Инструкция для ИИ',
     pluginPromptPh: 'Когда навык включён, ИИ должен…',
     custom: 'свой',
+    limitsTitle: 'Лимиты',
+    limitsNone: 'Данных о лимитах нет — провайдер их не присылает.',
+    limitsRequests: 'Запросы',
+    limitsTokens: 'Токены',
+    limitsReset: 'Сброс',
     aboutText: 'Rublox — AI-ассистент для Roblox Studio. Чат с любым LLM-провайдером, ' +
       'подключение плагина Studio и редактирование плейса изнутри. Когда Studio ' +
       'выключен, Rublox работает на вашем ПК как кодинг-агент.',

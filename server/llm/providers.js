@@ -16,10 +16,13 @@
 import { config } from '../config.js';
 import { getProvider, effectiveKind } from './registry.js';
 import { toolsForAnthropic, toolsForOpenAI } from './tools.js';
+import { captureLimits } from '../usage.js';
 
 // ── Низкоуровневый HTTP ────────────────────────────────
-async function httpJson(url, options) {
+async function httpJson(url, options, providerId) {
   const res = await fetch(url, options);
+  // Перехватываем лимиты из заголовков ответа (даже при ошибке — полезно).
+  if (providerId) captureLimits(providerId, res.headers);
   const text = await res.text();
   let data;
   try {
@@ -152,7 +155,7 @@ async function callAnthropic(p, opts) {
     method: 'POST',
     headers: anthropicHeaders(p),
     body: JSON.stringify(anthropicBody(p, opts, false)),
-  });
+  }, p.id);
   let text = '';
   const toolCalls = [];
   for (const block of data.content || []) {
@@ -171,6 +174,7 @@ async function streamAnthropic(p, opts, onDelta) {
     body: JSON.stringify(anthropicBody(p, opts, true)),
     signal: opts.signal,
   });
+  captureLimits(p.id, res.headers);
 
   let text = '';
   const blocks = {}; // index -> { type, id, name, jsonBuf }
@@ -266,7 +270,7 @@ async function callOpenAI(p, opts) {
     method: 'POST',
     headers: openaiHeaders(p),
     body: JSON.stringify(openaiBody(p, opts, false)),
-  });
+  }, p.id);
   const choice = data.choices?.[0]?.message || {};
   const toolCalls = (choice.tool_calls || []).map((tc) => {
     let args = {};
@@ -287,6 +291,7 @@ async function streamOpenAI(p, opts, onDelta) {
     body: JSON.stringify(openaiBody(p, opts, true)),
     signal: opts.signal,
   });
+  captureLimits(p.id, res.headers);
 
   let text = '';
   const toolAcc = []; // индекс -> { id, name, argsBuf }
