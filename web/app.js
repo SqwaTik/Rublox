@@ -175,6 +175,89 @@ function addMsg(cls, text) {
   scrollDown();
 }
 
+// ── Обновления (changelog по страницам) ───────────────
+const CHANGELOG = [
+  { v: 'v0.2.3', date: '', items: [
+    'Чат: исправлена ошибка 400 при смене модели в середине диалога',
+    'Авто-заголовок чата — один раз и по смыслу, без мусора',
+    'Плавный стрим текста, кнопка «вниз», приветствие в пустом чате',
+    'Markdown-таблицы и нумерованные списки, мягкий жирный',
+    'ultrathink в сообщении → максимальное мышление + радужная подсветка',
+    'Кастомные дропдауны, тосты, удаление провайдера из списка',
+    'Раздел Plugins → Скиллы, красивые свотчи тем и переключатели',
+  ] },
+  { v: 'v0.2.2', date: '', items: [
+    'Автодетект реальных моделей провайдера (Bearer + x-api-key)',
+    'Показ только совместимых моделей по протоколу',
+    'Шаблон OpenModel — DeepSeek / Qwen / MiMo / Claude',
+  ] },
+  { v: 'v0.2.1', date: '', items: [
+    'Починен multi/openai (reasoning_effort только reasoning-моделям)',
+    'Реалтайм-синхронизация между окнами, индикатор лимитов',
+    'Бейджи возможностей моделей, фиксы поповеров',
+  ] },
+  { v: 'v0.2.0', date: '', items: [
+    '67 инструментов: постройки по генплану, UI, физика, свет, звук',
+    'ИИ-плагины (скиллы), документация по Luau (29 тем)',
+    '9 тем со свотчами, todo-план, источники веб-поиска',
+  ] },
+];
+let updatesPage = 0;
+function renderUpdates() {
+  const list = $('updatesList'), pager = $('updatesPager');
+  if (!list) return;
+  const rel = CHANGELOG[updatesPage];
+  if (!rel) return;
+  list.innerHTML = `<div class="upd-card"><div class="upd-ver">${rel.v}</div><ul>` +
+    rel.items.map((x) => `<li>${x.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]))}</li>`).join('') +
+    '</ul></div>';
+  pager.innerHTML = CHANGELOG.map((r, i) =>
+    `<span class="upd-dot${i === updatesPage ? ' active' : ''}" data-i="${i}" title="${r.v}"></span>`).join('');
+  pager.querySelectorAll('.upd-dot').forEach((d) => {
+    d.onclick = () => { updatesPage = Number(d.dataset.i); renderUpdates(); };
+  });
+}
+
+// Превращает нативный <select> в кастомный красивый дропдаун (нативный
+// прячем, но он остаётся источником значения и событий change).
+function enhanceSelect(sel) {
+  if (!sel || sel.dataset.enhanced) return;
+  sel.dataset.enhanced = '1';
+  const wrap = document.createElement('div');
+  wrap.className = 'cselect';
+  sel.parentNode.insertBefore(wrap, sel);
+  wrap.appendChild(sel);
+  sel.style.display = 'none';
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'cselect-btn';
+  const menu = document.createElement('div');
+  menu.className = 'cselect-menu hidden';
+  wrap.appendChild(btn); wrap.appendChild(menu);
+  const sync = () => {
+    const opt = sel.options[sel.selectedIndex];
+    btn.innerHTML = `<span>${opt ? opt.textContent : ''}</span>${window.ICON.chevron || ''}`;
+    menu.innerHTML = '';
+    Array.from(sel.options).forEach((o, idx) => {
+      const it = document.createElement('div');
+      it.className = 'cselect-item' + (idx === sel.selectedIndex ? ' active' : '');
+      it.textContent = o.textContent;
+      it.onclick = () => {
+        sel.selectedIndex = idx; menu.classList.add('hidden'); sync();
+        sel.dispatchEvent(new Event('change'));
+      };
+      menu.appendChild(it);
+    });
+  };
+  sel._csync = sync;
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.cselect-menu').forEach((m) => m !== menu && m.classList.add('hidden'));
+    menu.classList.toggle('hidden');
+  };
+  document.addEventListener('click', () => menu.classList.add('hidden'));
+  sync();
+}
+
 // Тост-уведомление сверху по центру с анимацией (вместо текста справа-снизу).
 function showToast(text, kind) {
   const host = $('toastHost');
@@ -721,6 +804,7 @@ function renderProviderPickers() {
     o.value = p.id; o.textContent = p.label; sel.appendChild(o);
   }
   if (current.provider) sel.value = current.provider;
+  if (sel._csync) sel._csync();
   updatePills(); renderProviderList();
 }
 
@@ -834,6 +918,7 @@ document.querySelectorAll('.tab').forEach((tab) => {
     document.querySelectorAll('.tab-pane').forEach((p) => p.classList.remove('active'));
     tab.classList.add('active');
     document.querySelector(`.tab-pane[data-pane="${tab.dataset.tab}"]`).classList.add('active');
+    if (tab.dataset.tab === 'updates') renderUpdates();
   };
 });
 
@@ -878,6 +963,7 @@ function fillForm(p) {
   $('pf-kind').value = p.kind || 'multi'; $('pf-baseUrl').value = p.baseUrl || '';
   $('pf-model').value = p.model || ''; $('pf-apiKey').value = '';
   $('pf-models').classList.add('hidden'); $('pf-hint').textContent = '';
+  if ($('pf-kind')._csync) $('pf-kind')._csync();
 }
 function formBody() {
   return {
@@ -1171,6 +1257,10 @@ async function init() {
   renderThemeGrid();
   $('set-lang').value = window.getLang();
   paintIcons(); applyI18n();
+  // Кастомные дропдауны вместо нативных select (язык, протокол провайдера).
+  enhanceSelect($('set-lang'));
+  enhanceSelect($('pf-kind'));
+  enhanceSelect($('popProvider'));
   // шаблоны провайдеров
   try { templates = (await fetch('/api/provider-templates').then((r) => r.json())).templates || []; } catch { templates = []; }
   // about

@@ -103,6 +103,7 @@
             <button class="tab" data-tab="plugins" data-t="plugins">Plugins</button>
             <button class="tab" data-tab="connection" data-t="connection">Connection</button>
             <button class="tab" data-tab="appearance" data-t="appearance">Appearance</button>
+            <button class="tab" data-tab="updates" data-t="updates">Updates</button>
             <button class="tab" data-tab="about" data-t="about">About</button>
           </div>
           <button class="icon-btn" id="closeSettings" data-icon="close"></button>
@@ -190,6 +191,12 @@
               <span data-t="theme">Theme</span>
               <div class="theme-grid" id="theme-grid"></div>
             </div>
+          </div>
+
+          <!-- вкладка Updates (changelog по страницам) -->
+          <div class="tab-pane" data-pane="updates">
+            <div class="updates-list" id="updatesList"></div>
+            <div class="updates-pager" id="updatesPager"></div>
           </div>
 
           <!-- вкладка About -->
