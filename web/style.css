@@ -341,9 +341,21 @@ label.full textarea {
 
 /* Markdown */
 .bubble p { margin: 0 0 8px; } .bubble p:last-child { margin-bottom: 0; }
-.bubble h3, .bubble h4, .bubble h5 { margin: 10px 0 6px; }
-.bubble ul { margin: 6px 0; padding-left: 20px; } .bubble li { margin: 2px 0; }
+.bubble h3, .bubble h4, .bubble h5 { margin: 10px 0 6px; font-weight: 650; }
+.bubble ul, .bubble ol { margin: 6px 0; padding-left: 20px; } .bubble li { margin: 2px 0; }
 .bubble a { color: var(--accent-2); }
+/* Жирный мягче — не «кричит» (раньше его было слишком много). */
+.bubble strong, .tool-res strong { font-weight: 600; color: var(--text); }
+.bubble em { color: var(--text); opacity: .92; }
+/* Markdown-таблицы. */
+.md-table { margin: 8px 0; overflow-x: auto; border-radius: 10px; border: 1px solid var(--border-2); }
+.md-table table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.md-table th, .md-table td { padding: 7px 11px; text-align: left; border-bottom: 1px solid var(--border-2); }
+.md-table th { background: rgba(255,255,255,0.04); font-weight: 600; color: var(--text); }
+.md-table tr:last-child td { border-bottom: none; }
+.md-table td { color: var(--muted); }
+.tool-res { font-size: 13px; }
+.tool-res p:first-child { margin-top: 0; }
 .bubble blockquote { margin: 6px 0; padding: 4px 12px; border-left: 3px solid var(--accent); color: var(--muted); background: rgba(255, 255, 255, 0.03); }
 .bubble code { background: rgba(224, 16, 48, 0.16); padding: 1.5px 6px; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 0.9em; }
 .codeblock { position: relative; margin: 8px 0; border-radius: 11px; overflow: hidden; border: 1px solid var(--border-2); background: rgba(0, 0, 0, 0.4); }
@@ -389,7 +401,13 @@ label.full textarea {
 .suggest div:hover, .suggest div.active { background: rgba(224, 16, 48, 0.2); }
 
 /* ── Поповеры ── */
-.popover { position: fixed; z-index: 40; border-radius: 12px; padding: 9px; width: 320px; max-height: 56vh; display: flex; flex-direction: column; gap: 7px; background: var(--panel-2); border: 1px solid var(--border-2); box-shadow: 0 10px 36px rgba(0, 0, 0, 0.55); }
+.popover { position: fixed; z-index: 40; border-radius: 12px; padding: 9px; width: 320px; max-height: 56vh; display: flex; flex-direction: column; gap: 7px; background: var(--panel-2); border: 1px solid var(--border-2); box-shadow: 0 10px 36px rgba(0, 0, 0, 0.55); transform-origin: bottom center; }
+/* Плавное «раскрытие» минипикеров снизу вверх. */
+.popover:not(.hidden) { animation: popIn .18s cubic-bezier(.2,.9,.3,1.25); }
+@keyframes popIn { from { opacity: 0; transform: translateY(8px) scale(.96); } to { opacity: 1; transform: none; } }
+/* Галочка у активного пункта появляется плавно. */
+.pop-item.active::after { content: '✓'; margin-left: auto; color: var(--accent-2); animation: rise .2s ease; }
+.pop-item { display: flex; align-items: center; }
 .pop-head select, .pop-search { width: 100%; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--border-2); background: rgba(0, 0, 0, 0.3); color: var(--text); font: inherit; }
 .pop-list { overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .pop-item { padding: 9px 11px; border-radius: 9px; cursor: pointer; font-size: 13px; display: flex; justify-content: space-between; gap: 8px; }
@@ -482,6 +500,18 @@ label.full textarea {
 /* ── Инлайн-редактирование названия чата ── */
 .ci-edit, .title-edit { font: inherit; border: 1px solid var(--accent); border-radius: 7px; background: rgba(0,0,0,0.35); color: var(--text); padding: 4px 8px; outline: none; }
 .ci-edit { width: 100%; font-size: 13px; }
+
+/* ── ultrathink: радужная подсветка сообщения ── */
+.msg.ultra .bubble {
+  position: relative; border: none;
+  background:
+    linear-gradient(var(--user-bg, rgba(255,255,255,.05)), var(--user-bg, rgba(255,255,255,.05))) padding-box,
+    linear-gradient(120deg, #ff5d6c, #ffb454, #6ee787, #54c8ff, #c084fc, #ff5d6c) border-box;
+  border: 1.5px solid transparent;
+  background-size: 100% 100%, 300% 100%;
+  animation: ultraFlow 6s linear infinite;
+}
+@keyframes ultraFlow { to { background-position: 0 0, 300% 0; } }
 
 /* ── Плавный стрим: пока печатает — плоский текст с переносами ── */
 .bubble.streaming { white-space: pre-wrap; }

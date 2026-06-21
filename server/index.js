@@ -349,8 +349,12 @@ wss.on('connection', (ws) => {
     }
 
     // Обычное сообщение → агентный цикл с LLM.
+    // «ultrathink» в сообщении → максимальное мышление на ЭТОТ ход (как в Claude).
+    const ultra = /\bultrathink\b/i.test(text);
+    const prevThinking = session.thinking;
+    if (ultra) session.thinking = 'max';
     session.addUser(text);
-    send({ type: 'user', text }); // эхо для других клиентов (свой origin пропустит)
+    send({ type: 'user', text, ultra }); // эхо для других клиентов (свой origin пропустит)
     send({ type: 'typing' });
     const ac = new AbortController();
     runs.set(chatId, ac);
@@ -369,6 +373,7 @@ wss.on('connection', (ws) => {
       send({ type: 'error', text: err.message });
     } finally {
       runs.delete(chatId);
+      if (ultra) session.thinking = prevThinking; // вернуть прежний уровень мышления
     }
     await session.autoTitle(); // авто-заголовок по теме, если не переименован
     session.persist();
