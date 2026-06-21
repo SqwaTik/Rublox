@@ -62,6 +62,14 @@ window.I18N = {
     saved: 'Saved',
     stopped: 'Stopped',
     deleteProvider: 'Delete provider',
+    projects: 'Projects',
+    noProject: 'No project',
+    newProject: 'New project',
+    createProject: 'Create',
+    projectFolder: 'Project folder',
+    projectMemory: 'Project memory (shared across chats)',
+    projectNotes: 'Notes the AI remembers',
+    projectNotesPh: 'Goals, conventions, important facts the AI should always know…',
     aboutText: 'Rublox — AI assistant for Roblox Studio. Chat with any LLM provider, ' +
       'connect a Studio plugin and edit your place from inside. When Studio is off, ' +
       'Rublox works on your PC like a coding agent.',
@@ -126,6 +134,14 @@ window.I18N = {
     saved: 'Сохранено',
     stopped: 'Остановлено',
     deleteProvider: 'Удалить провайдера',
+    projects: 'Проекты',
+    noProject: 'Без проекта',
+    newProject: 'Новый проект',
+    createProject: 'Создать',
+    projectFolder: 'Проектная папка',
+    projectMemory: 'Память проекта (общая для всех чатов)',
+    projectNotes: 'Что ИИ должен помнить',
+    projectNotesPh: 'Цели, договорённости, важные факты, которые ИИ должен всегда знать…',
     aboutText: 'Rublox — AI-ассистент для Roblox Studio. Чат с любым LLM-провайдером, ' +
       'подключение плагина Studio и редактирование плейса изнутри. Когда Studio ' +
       'выключен, Rublox работает на вашем ПК как кодинг-агент.',

@@ -6,6 +6,7 @@ import { getProvider } from './llm/registry.js';
 import { complete } from './llm/providers.js';
 import { saveSession, loadSessionData, deleteSessionFile, listSessionIds } from './store.js';
 import { activeSkillPrompts } from './skills.js';
+import { projectPromptBlock } from './projects.js';
 
 // Ядро личности (стабильное — хорошо кэшируется prompt cache).
 const CORE_PROMPT =
@@ -128,6 +129,9 @@ export class Session {
     p += `\n\nТЫ СЕЙЧАС: модель «${this.model || 'не выбрана'}» через провайдера ` +
       `«${this.provider || 'не выбран'}». Ты — оболочка Rublox поверх этой модели. ` +
       'Если спросят, какая ты модель — отвечай именно так, не выдумывай другое имя.';
+    // Контекст активного проекта — общая память во всех чатах.
+    const proj = projectPromptBlock();
+    if (proj) p += `\n\n${proj}`;
     // Активные ИИ-плагины (скиллы) подмешивают свои инструкции в поведение.
     const skills = activeSkillPrompts();
     if (skills.length) p += `\n\nАКТИВНЫЕ НАВЫКИ:\n${skills.join('\n')}`;

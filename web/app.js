@@ -175,6 +175,73 @@ function addMsg(cls, text) {
   scrollDown();
 }
 
+// ── Проекты (проектная папка + общая память во всех чатах) ──
+let projects = [];
+let activeProject = null;
+let prjEditId = null;
+
+async function loadProjects() {
+  const r = await fetch('/api/projects').then((r) => r.json()).catch(() => null);
+  if (r) { projects = r.projects || []; activeProject = r.active || null; renderProjectBar(); }
+}
+function renderProjectBar() {
+  const el = $('projectName');
+  if (el) el.textContent = activeProject ? activeProject.name : (window.t('noProject') || 'Без проекта');
+}
+function renderProjectList() {
+  const list = $('projectList');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!projects.length) { list.innerHTML = `<div class="form-hint">${window.t('noProject') || ''}</div>`; }
+  for (const p of projects) {
+    const row = document.createElement('div');
+    row.className = 'prj-row' + (activeProject && p.id === activeProject.id ? ' active' : '');
+    row.innerHTML = `<div class="prj-main"><div class="prj-name">${escUsage(p.name)}</div>` +
+      `<div class="prj-sub">${escUsage(p.folder || '—')}</div></div>` +
+      `<button class="pr-del" title="${window.t('delete') || 'Удалить'}">${window.ICON.trash}</button>`;
+    row.querySelector('.prj-main').onclick = async () => {
+      const r = await fetch('/api/projects/active', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: p.id }) }).then((r) => r.json());
+      projects = r.projects; activeProject = r.active; renderProjectBar(); renderProjectList(); openProjectEdit(p);
+    };
+    row.querySelector('.pr-del').onclick = async (e) => {
+      e.stopPropagation();
+      const r = await fetch('/api/projects/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: p.id }) }).then((r) => r.json());
+      projects = r.projects; activeProject = r.active; renderProjectBar(); renderProjectList();
+      if (prjEditId === p.id) $('prj-edit').classList.add('hidden');
+    };
+    list.appendChild(row);
+  }
+}
+function openProjectEdit(p) {
+  prjEditId = p.id;
+  $('prj-edit').classList.remove('hidden');
+  $('prj-edit-folder').value = p.folder || '';
+  $('prj-notes').value = p.notes || '';
+}
+if ($('projectBar')) $('projectBar').onclick = () => {
+  $('projectsOverlay').classList.remove('hidden'); loadProjects().then(renderProjectList);
+  if (activeProject) openProjectEdit(activeProject); else $('prj-edit').classList.add('hidden');
+};
+if ($('closeProjects')) $('closeProjects').onclick = () => $('projectsOverlay').classList.add('hidden');
+if ($('projectsOverlay')) $('projectsOverlay').onclick = (e) => { if (e.target === $('projectsOverlay')) $('projectsOverlay').classList.add('hidden'); };
+if ($('prj-create')) $('prj-create').onclick = async () => {
+  const name = $('prj-name').value.trim();
+  if (!name) return;
+  const r = await fetch('/api/projects/create', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, folder: $('prj-folder').value.trim() }) }).then((r) => r.json());
+  projects = r.projects; activeProject = r.active;
+  $('prj-name').value = ''; $('prj-folder').value = '';
+  renderProjectBar(); renderProjectList();
+  if (activeProject) openProjectEdit(activeProject);
+  showToast(window.t('saved') || 'Сохранено', 'ok');
+};
+if ($('prj-save')) $('prj-save').onclick = async () => {
+  if (!prjEditId) return;
+  const r = await fetch('/api/projects/update', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: prjEditId, folder: $('prj-edit-folder').value.trim(), notes: $('prj-notes').value }) }).then((r) => r.json());
+  projects = r.projects; activeProject = r.active;
+  renderProjectBar(); renderProjectList();
+  showToast(window.t('saved') || 'Сохранено', 'ok');
+};
+
 // ── Обновления (changelog по страницам) ───────────────
 const CHANGELOG = [
   { v: 'v0.2.3', date: '', items: [
@@ -1269,6 +1336,7 @@ async function init() {
   updatePills();
   renderUsageRing(); // нарисовать пустое кольцо сразу
   loadUsage();
+  loadProjects();
   // Кнопки окна (свернуть/развернуть/закрыть) нужны только в десктоп-приложении
   // (Electron). В обычном браузере их прячем — там окном управляет сам браузер.
   if (!window.rublox) document.body.classList.add('in-browser');

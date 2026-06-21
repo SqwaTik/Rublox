@@ -26,6 +26,11 @@
     <div class="app">
       <aside class="sidebar" id="sidebar">
         <div class="sidebar-head">
+          <button class="project-bar" id="projectBar" title="Проект">
+            <span data-icon="box"></span>
+            <span class="pb-name" id="projectName" data-t="noProject">No project</span>
+            <span class="chev" data-icon="chevron"></span>
+          </button>
           <button class="new-chat-btn" id="newChat"><span data-icon="plus"></span> <span data-t="newChat">New chat</span></button>
         </div>
         <div class="chat-list" id="chatList"></div>
@@ -92,6 +97,35 @@
     </div>
     <div class="popover hidden" id="thinkPopover"><div class="pop-list" id="thinkList"></div></div>
     <div class="toast-host" id="toastHost"></div>
+
+    <!-- Модалка проектов -->
+    <div class="modal-overlay hidden" id="projectsOverlay">
+      <div class="modal modal-sm">
+        <div class="modal-head">
+          <h3 data-t="projects">Projects</h3>
+          <button class="icon-btn" id="closeProjects" data-icon="close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="project-list" id="projectList"></div>
+          <hr class="sep" />
+          <h3 data-t="newProject">New project</h3>
+          <div class="form-grid">
+            <label><span data-t="name">Name</span><input id="prj-name" placeholder="My game" /></label>
+            <label><span data-t="projectFolder">Project folder</span><input id="prj-folder" placeholder="C:\\Users\\you\\game" /></label>
+          </div>
+          <div class="form-actions"><button class="primary-btn" id="prj-create" data-t="createProject">Create</button></div>
+          <div id="prj-edit" class="hidden">
+            <hr class="sep" />
+            <h3 data-t="projectMemory">Project memory (shared across chats)</h3>
+            <label class="full"><span data-t="projectFolder">Project folder</span><input id="prj-edit-folder" /></label>
+            <label class="full"><span data-t="projectNotes">Notes the AI remembers</span>
+              <textarea id="prj-notes" rows="5" data-t-ph="projectNotesPh" placeholder="Goals, conventions, important facts…"></textarea>
+            </label>
+            <div class="form-actions"><button class="primary-btn" id="prj-save" data-t="save">Save</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="popover hidden" id="usagePopover"><div class="usage-body" id="usageBody"></div></div>
 
     <!-- Модалка настроек с вкладками -->
