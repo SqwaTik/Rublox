@@ -311,15 +311,18 @@ export function treeTool(args) {
 // Информация о системе.
 export function sysInfoTool() {
   const gb = (b) => (b / 1024 / 1024 / 1024).toFixed(1) + ' GB';
-  return [
-    `ОС: ${platform()} ${arch()}`,
-    `Хост: ${hostname()}`,
-    `CPU: ${cpus()[0]?.model || '?'} ×${cpus().length}`,
-    `Память: ${gb(freemem())} свободно из ${gb(totalmem())}`,
-    `Домашний каталог: ${homedir()}`,
-    `Node: ${process.version}`,
-    `CWD сервера: ${process.cwd()}`,
-  ].join('\n');
+  // Markdown-таблица — рендерится в UI читаемо и без лишнего жирного.
+  const rows = [
+    ['ОС', `${platform()} ${arch()}`],
+    ['Хост', hostname()],
+    ['CPU', `${cpus()[0]?.model || '?'} ×${cpus().length}`],
+    ['Память', `${gb(freemem())} свободно из ${gb(totalmem())}`],
+    ['Дом. каталог', homedir()],
+    ['Node', process.version],
+    ['CWD сервера', process.cwd()],
+  ];
+  return '| Параметр | Значение |\n|---|---|\n' +
+    rows.map(([k, v]) => `| ${k} | ${v} |`).join('\n');
 }
 
 // Текущий рабочий каталог процесса сервера.

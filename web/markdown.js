@@ -95,6 +95,37 @@
         continue;
       }
 
+      // Таблица: строка |..|..| + разделитель |---|---|
+      if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length &&
+          /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(lines[i + 1])) {
+        closeList();
+        const parseRow = (ln) => ln.trim().replace(/^\||\|$/g, '').split('|').map((c) => inline(escapeHtml(c.trim())));
+        const header = parseRow(line);
+        i += 2; // заголовок + разделитель
+        let body = '';
+        while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) {
+          const cells = parseRow(lines[i]);
+          body += '<tr>' + cells.map((c) => `<td>${c}</td>`).join('') + '</tr>';
+          i++;
+        }
+        html += '<div class="md-table"><table><thead><tr>' +
+          header.map((c) => `<th>${c}</th>`).join('') +
+          '</tr></thead><tbody>' + body + '</tbody></table></div>';
+        continue;
+      }
+
+      // Нумерованный список 1. 2. 3.
+      if (/^\s*\d+\.\s+/.test(line)) {
+        closeList();
+        let ol = '<ol>';
+        while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+          ol += `<li>${inline(escapeHtml(lines[i].replace(/^\s*\d+\.\s+/, '')))}</li>`;
+          i++;
+        }
+        html += ol + '</ol>';
+        continue;
+      }
+
       // Список (включая чек-листы/планы)
       if (/^\s*[-*]\s+/.test(line)) {
         if (!listOpen) {

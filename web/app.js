@@ -118,7 +118,7 @@ function onMessage(m) {
       // Своё (origin === myCid) уже отрисовано оптимистично — пропускаем.
       if (m.origin && m.origin === myCid) break;
       if (m.chatId) busyChats.add(m.chatId);
-      if (forActive) { addMsg('user', m.text); startWork(); setSendStop(true); }
+      if (forActive) { addMsg('user' + (m.ultra ? ' ultra' : ''), m.text); startWork(); setSendStop(true); }
       break;
   }
 }
@@ -346,11 +346,25 @@ function renderToolCall(name, args) {
 function renderToolResult(name, ok, result) {
   // Веб-поиск: показываем источники карточками-чипами (как у крупных ИИ).
   if (ok && name === 'web_search') { renderSources(String(result || '')); return; }
-  // Результат краткий — детали уже видны в ответе ассистента. Ошибки выделяем.
-  if (ok && (result == null || /^(ok|Изменено|Создан|Выделен|Записано)/.test(String(result)) || String(result).length < 4)) {
-    return; // тривиальный успех не засоряет ленту
+  const s = String(result == null ? '' : result);
+  // Тривиальный успех не засоряет ленту — детали уже видны в ответе ассистента.
+  if (ok && (result == null || /^(ok|Изменено|Создан|Выделен|Записано|Построено|Перемещено|Сварено)/.test(s) || s.length < 4)) {
+    return;
   }
-  addMsg('tool' + (ok ? '' : ' err'), (ok ? '← ' : '⚠ ') + name + ': ' + truncate(result, 400));
+  clearWelcome();
+  // Карточка результата: заголовок (имя инструмента) + тело с markdown.
+  const wrap = document.createElement('div');
+  wrap.className = 'msg tool' + (ok ? '' : ' err');
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble rich';
+  const head = ok ? (window.ICON.check || '←') : (window.ICON.close || '⚠');
+  bubble.innerHTML = `<div class="toolcall-head">${head}<b>${escUsage(name)}</b></div>` +
+    `<div class="tool-res">${window.mdRender(truncate(s, 1400))}</div>`;
+  wrap.appendChild(bubble);
+  chat.appendChild(wrap);
+  bindCopy(bubble);
+  trimChat();
+  scrollDown();
 }
 
 // Источники веб-поиска → чипы с доменом и заголовком.
@@ -1095,7 +1109,8 @@ function setSendStop(isStop) {
 function submitText() {
   const text = input.value;
   if (!text.trim()) return;
-  addMsg('user', text);
+  // «ultrathink» — радужная подсветка сообщения (как в Claude — «думай дольше»).
+  addMsg('user' + (/\bultrathink\b/i.test(text) ? ' ultra' : ''), text);
   send(text);
   input.value = ''; input.style.height = 'auto'; hideSuggest();
   busyChats.add(activeChat);
