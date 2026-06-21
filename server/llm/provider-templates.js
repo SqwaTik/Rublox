@@ -19,6 +19,11 @@ export const PROVIDER_TEMPLATES = [
     note: 'Крупнейший роутер: сотни моделей всех вендоров.',
   },
   {
+    id: 'openmodel', label: 'OpenModel (DeepSeek/Qwen/Claude)', kind: 'anthropic',
+    baseUrl: 'https://api.openmodel.ai', model: 'deepseek-v4-pro',
+    note: 'Шлюз через Messages API: DeepSeek (deepseek-v4-pro/flash), Qwen, MiMo, Claude. Протокол — Anthropic.',
+  },
+  {
     id: 'local', label: 'Local (свои модели)', kind: 'openai',
     baseUrl: 'http://localhost:11434/v1', model: '',
     note: 'Скачанные модели: Ollama (11434) / LM Studio (1234) / vLLM. Ключ не нужен.',

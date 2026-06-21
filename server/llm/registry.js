@@ -144,75 +144,73 @@ export function deleteProvider(id) {
   return true;
 }
 
+// Какие протоколы из supported_protocols совместимы с нашим режимом запроса.
+// anthropic шлёт в /v1/messages → нужен 'messages'. openai шлёт в /chat/completions
+// → 'chat'/'completions'/'openai' (новый 'responses' мы пока не вызываем, поэтому
+// responses-only модели для openai-режима не показываем как рабочие).
+function protoMatches(kind, protos) {
+  if (!Array.isArray(protos) || !protos.length) return true; // нет инфы — показываем
+  const has = (x) => protos.includes(x);
+  if (kind === 'anthropic') return has('messages') || has('anthropic');
+  return has('chat') || has('completions') || has('openai') || has('responses');
+}
+
 // ── Живая подгрузка списка моделей по токену ────────────
+// Универсально: пробуем оба пути (/v1/models и /models) и оба заголовка
+// авторизации (Bearer и x-api-key) — разные шлюзы хотят разное (напр. OpenModel
+// /v1/models принимает только Bearer, официальный Anthropic — только x-api-key).
+// Если шлюз сообщает supported_protocols у моделей — показываем только те, что
+// реально работают в выбранном протоколе. Так список = реально доступные модели.
 export async function fetchModels(id) {
   const p = getProvider(id);
   if (!p) throw new Error(`Провайдер "${id}" не найден`);
   const kind = effectiveKind(p.kind);
 
-  if (kind === 'openai') {
-    const res = await fetch(`${p.baseUrl}/models`, {
-      headers: {
-        authorization: `Bearer ${p.apiKey || 'not-needed'}`,
-        'user-agent': 'Rublox/0.2 (+https://github.com/SqwaTik/roblox-ai-assistant)',
-        accept: 'application/json',
-        ...(p.headers || {}),
-      },
-    });
-    const t = await res.text();
-    if (!res.ok) {
-      // 3xx (напр. 305 Use Proxy) — почти всегда неверный baseUrl или адрес
-      // требует прокси/редирект, который мы не следуем. Поясняем по-человечески.
-      const hint = res.status >= 300 && res.status < 400
-        ? ` — адрес перенаправляет (${res.status}); проверьте baseUrl (нужен прямой путь до /v1).`
-        : '';
-      throw new Error(`HTTP ${res.status}: ${t.slice(0, 160)}${hint}`);
+  const base = String(p.baseUrl || '').replace(/\/+$/, '');
+  if (!base) throw new Error('Не задан baseUrl провайдера');
+  const hasVer = /\/v\d+$/.test(base);
+  const urls = hasVer ? [`${base}/models`] : [`${base}/v1/models`, `${base}/models`];
+
+  const common = {
+    'user-agent': 'Rublox/0.2 (+https://github.com/SqwaTik/roblox-ai-assistant)',
+    accept: 'application/json',
+    ...(p.headers || {}),
+  };
+  const authSets = [
+    { authorization: `Bearer ${p.apiKey || 'not-needed'}` },
+    { 'x-api-key': p.apiKey || '', 'anthropic-version': '2023-06-01' },
+  ];
+
+  let lastErr = '';
+  for (const url of urls) {
+    for (const auth of authSets) {
+      try {
+        const res = await fetch(url, { headers: { ...common, ...auth } });
+        const t = await res.text();
+        if (!res.ok) { lastErr = `HTTP ${res.status}: ${t.slice(0, 120)}`; continue; }
+        let data;
+        try { data = JSON.parse(t); } catch { lastErr = /^\s*</.test(t) ? 'вернулся HTML (проверьте baseUrl)' : 'ответ не JSON'; continue; }
+        const raw = data.data || data.models || data || [];
+        const entries = (Array.isArray(raw) ? raw : []).map((m) => (
+          typeof m === 'string'
+            ? { id: m, protos: null }
+            : { id: m.id || m.name, protos: m.supported_protocols || m.supported_endpoint_types || null }
+        )).filter((e) => e.id);
+        if (!entries.length) { lastErr = 'пустой список моделей'; continue; }
+        // Показываем только совместимые с протоколом (если шлюз их размечает).
+        const compatible = entries.filter((e) => protoMatches(kind, e.protos));
+        const list = (compatible.length ? compatible : entries).map((e) => e.id);
+        return [...new Set(list)].sort();
+      } catch (e) { lastErr = e.message; }
     }
-    // Если вернулся HTML (страница, редирект, неверный baseUrl) — JSON.parse даст
-    // невнятное "Unexpected token '<'". Ловим и показываем понятную причину.
-    let data;
-    try {
-      data = JSON.parse(t);
-    } catch {
-      const looksHtml = /^\s*</.test(t);
-      throw new Error(
-        looksHtml
-          ? `Адрес ${p.baseUrl}/models вернул HTML, а не JSON — проверьте baseUrl (нужен путь до /v1).`
-          : `Ответ /models не является JSON: ${t.slice(0, 160)}`
-      );
-    }
-    const list = (data.data || data.models || [])
-      .map((m) => (typeof m === 'string' ? m : m.id || m.name))
-      .filter(Boolean);
-    return [...new Set(list)].sort();
   }
 
-  // Anthropic: пробуем /v1/models, иначе дефолтный набор.
-  try {
-    const res = await fetch(`${p.baseUrl}/v1/models`, {
-      headers: {
-        'x-api-key': p.apiKey,
-        'anthropic-version': '2023-06-01',
-        'user-agent': 'claude-cli/1.0.0 (external, cli)',
-        ...(p.headers || {}),
-      },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const list = (data.data || data.models || [])
-        .map((m) => (typeof m === 'string' ? m : m.id))
-        .filter(Boolean);
-      if (list.length) return [...new Set(list)].sort();
-    }
-  } catch {
-    /* падаем в дефолт ниже */
+  // Ничего не сработало. Для anthropic не оставляем UI пустым — даём известные
+  // claude-модели как резерв; для openai честно сообщаем ошибку.
+  if (kind === 'anthropic') {
+    return ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'];
   }
-  return [
-    'claude-opus-4-8',
-    'claude-sonnet-4-6',
-    'claude-haiku-4-5-20251001',
-    'claude-3-5-sonnet-20241022',
-  ];
+  throw new Error(`Не удалось получить модели: ${lastErr || 'нет ответа от провайдера'}`);
 }
 
 loadProviders();
