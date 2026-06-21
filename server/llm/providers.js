@@ -77,18 +77,20 @@ function canonToAnthropic(messages) {
   const out = [];
   for (const m of messages) {
     if (m.role === 'user') {
-      out.push({ role: 'user', content: m.content });
+      out.push({ role: 'user', content: m.content && m.content.length ? m.content : '…' });
     } else if (m.role === 'assistant') {
       const blocks = [];
-      if (m.content) blocks.push({ type: 'text', text: m.content });
+      if (m.content && m.content.length) blocks.push({ type: 'text', text: m.content });
       for (const tc of m.toolCalls || []) {
-        blocks.push({ type: 'tool_use', id: tc.id, name: tc.name, input: tc.args });
+        blocks.push({ type: 'tool_use', id: tc.id, name: tc.name, input: tc.args || {} });
       }
+      // Пустой ассистент без блоков — пропускаем (Anthropic требует непустой content).
+      if (!blocks.length) continue;
       out.push({ role: 'assistant', content: blocks });
     } else if (m.role === 'tool') {
       out.push({
         role: 'user',
-        content: [{ type: 'tool_result', tool_use_id: m.toolCallId, content: m.content }],
+        content: [{ type: 'tool_result', tool_use_id: m.toolCallId, content: m.content && m.content.length ? m.content : '(пусто)' }],
       });
     }
   }
@@ -219,13 +221,22 @@ async function streamAnthropic(p, opts, onDelta) {
 
 // ── OpenAI-совместимые: преобразование канона ──────────
 function canonToOpenAI(system, messages) {
-  const out = [{ role: 'system', content: system }];
+  const out = [];
+  if (system && String(system).trim()) out.push({ role: 'system', content: system });
   for (const m of messages) {
     if (m.role === 'user') {
-      out.push({ role: 'user', content: m.content });
+      // Пустой content → 400 "non-empty content". Подстраховываемся.
+      out.push({ role: 'user', content: m.content && m.content.length ? m.content : '…' });
     } else if (m.role === 'assistant') {
-      const msg = { role: 'assistant', content: m.content || '' };
-      if (m.toolCalls?.length) {
+      const hasTools = !!(m.toolCalls && m.toolCalls.length);
+      const hasText = !!(m.content && m.content.length);
+      // Ассистент без текста И без тулзов — вырожденное сообщение, пропускаем
+      // (иначе провайдер ругается на пустой content).
+      if (!hasTools && !hasText) continue;
+      const msg = { role: 'assistant' };
+      // С tool_calls пустой текст допустим как null (спека OpenAI); без них — текст.
+      msg.content = hasText ? m.content : (hasTools ? null : '…');
+      if (hasTools) {
         msg.tool_calls = m.toolCalls.map((tc) => ({
           id: tc.id,
           type: 'function',
@@ -234,7 +245,7 @@ function canonToOpenAI(system, messages) {
       }
       out.push(msg);
     } else if (m.role === 'tool') {
-      out.push({ role: 'tool', tool_call_id: m.toolCallId, content: m.content });
+      out.push({ role: 'tool', tool_call_id: m.toolCallId, content: m.content && m.content.length ? m.content : '(пусто)' });
     }
   }
   return out;

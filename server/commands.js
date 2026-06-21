@@ -98,13 +98,14 @@ export async function handleCommand(session, raw) {
       if (!isKnownProvider(p))
         return { handled: true, reply: `Провайдер "${p}" не найден. /models — список.` };
       session.setProvider(p);
-      return { handled: true, reply: `Провайдер: ${p}, модель: ${session.model}` };
+      // silent — не пишем в чат, это служебная смена через минипикер.
+      return { handled: true, silent: true, reply: `Провайдер: ${p}, модель: ${session.model}` };
     }
 
     case '/setmodel': {
-      if (!arg) return { handled: true, reply: 'Укажите имя модели.' };
+      if (!arg) return { handled: true, silent: true, reply: 'Укажите имя модели.' };
       session.setModel(arg);
-      return { handled: true, reply: `Модель: ${session.model} (провайдер ${session.provider})` };
+      return { handled: true, silent: true, reply: `Модель: ${session.model} (провайдер ${session.provider})` };
     }
 
     case '/think': {
@@ -113,10 +114,10 @@ export async function handleCommand(session, raw) {
         const opts = Object.entries(THINKING_LEVELS)
           .map(([k, v]) => `${k} (${v.label})`)
           .join(', ');
-        return { handled: true, reply: `Уровни мышления: ${opts}` };
+        return { handled: true, silent: true, reply: `Уровни мышления: ${opts}` };
       }
       session.setThinking(lvl);
-      return { handled: true, reply: `Уровень мышления: ${THINKING_LEVELS[lvl].label}` };
+      return { handled: true, silent: true, reply: `Уровень мышления: ${THINKING_LEVELS[lvl].label}` };
     }
 
     case '/persona':

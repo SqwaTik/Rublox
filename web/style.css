@@ -67,13 +67,18 @@
 }
 .theme-card:hover { background: rgba(255,255,255,0.05); }
 .theme-card.active { border-color: var(--accent); background: rgba(255,255,255,0.06); }
+/* Круглый двухцветный свотч: фон темы + диагональный акцент. Выглядит как
+   аккуратная «монетка» предпросмотра, а не плоский прямоугольник. */
 .theme-swatch {
-  width: 34px; height: 22px; border-radius: 7px; flex: none;
-  border: 1px solid rgba(255,255,255,0.18); position: relative; overflow: hidden;
+  width: 30px; height: 30px; border-radius: 50%; flex: none; position: relative; overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.16);
+  box-shadow: inset 0 1px 2px rgba(255,255,255,.12), 0 1px 3px rgba(0,0,0,.35);
 }
-.theme-swatch::after {
-  content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 42%;
+.theme-swatch > span {
+  position: absolute; inset: 0;
+  clip-path: polygon(100% 0, 100% 100%, 0 100%); /* диагональная нижняя-правая половина */
 }
+.theme-card.active .theme-swatch { box-shadow: 0 0 0 2px var(--accent), inset 0 1px 2px rgba(255,255,255,.12); }
 .theme-name { font-size: 12.5px; color: var(--text); }
 
 * { box-sizing: border-box; }
@@ -161,7 +166,7 @@ html, body {
 .icon-btn svg { width: 16px; height: 16px; }
 
 /* ── Основная зона ── */
-.main { flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.main { flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0; position: relative; }
 .topbar {
   border-radius: var(--radius); padding: 11px 16px; display: flex; align-items: center;
   justify-content: space-between; background: var(--panel); border: 1px solid var(--border-2);
@@ -287,19 +292,31 @@ html, body {
 }
 .skill-del:hover { color: #ff6b6b; background: rgba(255,107,107,0.1); }
 .skill-del svg { width: 16px; height: 16px; }
-/* тумблер-переключатель */
-.switch { position: relative; display: inline-block; width: 38px; height: 22px; flex: none; }
+/* Кастомный тумблер: мягкая дорожка + объёмный кружок с тенью и плавной пружиной. */
+.switch { position: relative; display: inline-block; width: 42px; height: 24px; flex: none; }
 .switch input { opacity: 0; width: 0; height: 0; }
 .switch .slider {
-  position: absolute; cursor: pointer; inset: 0; border-radius: 22px;
-  background: var(--border-2); transition: background .18s;
+  position: absolute; cursor: pointer; inset: 0; border-radius: 999px;
+  background: var(--border-2);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.35);
+  transition: background .25s ease;
 }
 .switch .slider::before {
-  content: ''; position: absolute; height: 16px; width: 16px; left: 3px; top: 3px;
-  background: #fff; border-radius: 50%; transition: transform .18s;
+  content: ''; position: absolute; height: 18px; width: 18px; left: 3px; top: 3px;
+  background: #fff; border-radius: 50%;
+  box-shadow: 0 2px 5px rgba(0,0,0,.4);
+  transition: transform .28s cubic-bezier(.2,.9,.3,1.3);
 }
-.switch input:checked + .slider { background: var(--accent); }
-.switch input:checked + .slider::before { transform: translateX(16px); }
+.switch input:checked + .slider { background: var(--accent-grad, var(--accent)); box-shadow: inset 0 1px 3px rgba(0,0,0,.2); }
+.switch input:checked + .slider::before { transform: translateX(18px); }
+.switch input:focus-visible + .slider { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+
+/* Строка провайдера: имя слева кликабельно, справа бейдж и удаление. */
+.prov-row .pr-main { flex: 1; min-width: 0; }
+.prov-row .pr-act { display: flex; align-items: center; gap: 8px; flex: none; }
+.pr-del { background: none; border: none; color: var(--muted); cursor: pointer; padding: 4px; border-radius: 7px; display: flex; }
+.pr-del svg { width: 16px; height: 16px; }
+.pr-del:hover { color: #ff6b6b; background: rgba(255,107,107,0.12); }
 label.full { display: block; margin: 8px 0; }
 label.full span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
 label.full textarea {
@@ -386,8 +403,11 @@ label.full textarea {
 .tabs { display: flex; gap: 4px; }
 .tab { padding: 8px 14px; border-radius: 9px; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; font-weight: 500; }
 .tab:hover { color: var(--text); } .tab.active { background: rgba(224, 16, 48, 0.16); color: var(--text); }
-.modal-body { padding: 16px; overflow-y: auto; }
-.tab-pane { display: none; } .tab-pane.active { display: block; }
+/* Единая высота тела настроек — чтобы при переключении вкладок не «прыгало». */
+.modal-body { padding: 16px; overflow-y: auto; min-height: 440px; }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; animation: tabIn .22s ease; }
+@keyframes tabIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .provider-list { display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; }
 .prov-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-2); background: rgba(255, 255, 255, 0.02); cursor: pointer; }
 .prov-row:hover { border-color: var(--border); }
@@ -462,6 +482,48 @@ label.full textarea {
 /* ── Инлайн-редактирование названия чата ── */
 .ci-edit, .title-edit { font: inherit; border: 1px solid var(--accent); border-radius: 7px; background: rgba(0,0,0,0.35); color: var(--text); padding: 4px 8px; outline: none; }
 .ci-edit { width: 100%; font-size: 13px; }
+
+/* ── Плавный стрим: пока печатает — плоский текст с переносами ── */
+.bubble.streaming { white-space: pre-wrap; }
+
+/* ── Кнопка «вниз» (появляется при прокрутке вверх) ── */
+.scroll-btn {
+  position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%) translateY(8px);
+  width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--text); cursor: pointer; z-index: 30;
+  display: grid; place-items: center; box-shadow: 0 6px 18px rgba(0,0,0,.35);
+  opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s, background .15s;
+}
+.scroll-btn:not(.hidden) { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); }
+.scroll-btn:hover { background: var(--panel); }
+.scroll-btn svg { width: 18px; height: 18px; }
+
+/* ── Инлайн-заметка по центру (Остановлено и т.п.) ── */
+.chat-notice {
+  align-self: center; margin: 6px 0; font-size: 12px; color: var(--muted);
+  padding: 3px 12px; border-radius: 999px; border: 1px solid var(--border-2);
+  background: rgba(255,255,255,0.02); animation: rise .25s ease;
+}
+
+/* ── Приветствие в пустом чате ── */
+.chat-welcome {
+  margin: auto; text-align: center; color: var(--muted); padding: 24px;
+  display: flex; flex-direction: column; gap: 8px; align-items: center; animation: rise .3s ease;
+}
+.chat-welcome .cw-title { font-size: 17px; font-weight: 600; color: var(--text); }
+.chat-welcome .cw-hint { font-size: 13px; max-width: 360px; line-height: 1.5; }
+
+/* ── Тост-уведомления (сверху по центру) ── */
+.toast-host { position: fixed; top: calc(var(--titlebar-h) + 14px); left: 50%; transform: translateX(-50%); z-index: 200; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
+.toast {
+  display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 11px;
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--text); font-size: 13px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.4); animation: toastIn .28s cubic-bezier(.2,.9,.3,1.3);
+}
+.toast.out { animation: toastOut .25s ease forwards; }
+.toast svg { width: 16px; height: 16px; color: var(--ok); }
+@keyframes toastIn { from { opacity: 0; transform: translateY(-14px) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes toastOut { to { opacity: 0; transform: translateY(-10px); } }
 
 .hidden { display: none !important; }
 

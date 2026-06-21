@@ -42,7 +42,7 @@ window.I18N = {
     planTitle: 'Plan',
     sources: 'Sources',
     blueprint: 'Blueprint',
-    plugins: 'Plugins',
+    plugins: 'Skills',
     pluginsIntro: 'Enable AI skills that change how Rublox works. Each one adds an instruction the AI follows.',
     pluginsSearch: 'Search plugins…',
     pluginsEmpty: 'Nothing found',
@@ -56,6 +56,12 @@ window.I18N = {
     limitsRequests: 'Requests',
     limitsTokens: 'Tokens',
     limitsReset: 'Reset',
+    welcomeEmpty: 'This chat is empty yet',
+    welcomeHint: 'Describe a task — build, script, fix something in Roblox.',
+    updates: 'Updates',
+    saved: 'Saved',
+    stopped: 'Stopped',
+    deleteProvider: 'Delete provider',
     aboutText: 'Rublox — AI assistant for Roblox Studio. Chat with any LLM provider, ' +
       'connect a Studio plugin and edit your place from inside. When Studio is off, ' +
       'Rublox works on your PC like a coding agent.',
@@ -100,7 +106,7 @@ window.I18N = {
     planTitle: 'План',
     sources: 'Источники',
     blueprint: 'Генплан',
-    plugins: 'Плагины',
+    plugins: 'Скиллы',
     pluginsIntro: 'Включай навыки ИИ, меняющие работу Rublox. Каждый добавляет инструкцию, которой следует ИИ.',
     pluginsSearch: 'Поиск плагинов…',
     pluginsEmpty: 'Ничего не найдено',
@@ -114,13 +120,25 @@ window.I18N = {
     limitsRequests: 'Запросы',
     limitsTokens: 'Токены',
     limitsReset: 'Сброс',
+    welcomeEmpty: 'В этом чате пока что ничего нет',
+    welcomeHint: 'Опиши задачу — построить, заскриптить, починить что-то в Roblox.',
+    updates: 'Обновления',
+    saved: 'Сохранено',
+    stopped: 'Остановлено',
+    deleteProvider: 'Удалить провайдера',
     aboutText: 'Rublox — AI-ассистент для Roblox Studio. Чат с любым LLM-провайдером, ' +
       'подключение плагина Studio и редактирование плейса изнутри. Когда Studio ' +
       'выключен, Rublox работает на вашем ПК как кодинг-агент.',
   },
 };
 
-window.getLang = () => localStorage.getItem('lang') || 'en';
+// Язык по умолчанию — по локали системы/браузера (ru → русский), иначе английский.
+window.getLang = () => {
+  const saved = localStorage.getItem('lang');
+  if (saved) return saved;
+  const sys = (navigator.language || navigator.userLanguage || '').toLowerCase();
+  return sys.startsWith('ru') ? 'ru' : 'en';
+};
 window.setLang = (l) => localStorage.setItem('lang', l);
 window.t = (key) => {
   const lang = window.getLang();

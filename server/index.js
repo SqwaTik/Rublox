@@ -333,6 +333,13 @@ wss.on('connection', (ws) => {
     // Слеш-команды обрабатываются локально, без обращения к LLM.
     const cmd = await handleCommand(session, text);
     if (cmd.handled) {
+      // silent — служебные команды (смена модели/мышления через минипикер):
+      // не пишем в чат и не шлём лишний done, только обновляем состояние сессии.
+      if (cmd.silent) {
+        session.persist();
+        send({ type: 'session', info: session.info() });
+        return;
+      }
       send({ type: 'assistant', text: cmd.reply });
       session.persist();
       send({ type: 'session', info: session.info() });
