@@ -64,8 +64,11 @@
         </div>
 
         <footer class="composer">
+          <div class="attach-strip hidden" id="attachStrip"></div>
           <div class="composer-input">
             <div class="suggest hidden" id="suggest"></div>
+            <button class="attach-btn" id="attachBtn" data-icon="image" title="Прикрепить изображение"></button>
+            <input type="file" id="attachInput" accept="image/*" multiple class="hidden" />
             <textarea id="input" rows="1" data-t-ph="placeholder" placeholder="Describe a task or type a /command…"></textarea>
             <button class="send-btn" id="send" data-icon="send"></button>
           </div>

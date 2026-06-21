@@ -125,7 +125,7 @@ function onMessage(m) {
       // Своё (origin === myCid) уже отрисовано оптимистично — пропускаем.
       if (m.origin && m.origin === myCid) break;
       if (m.chatId) busyChats.add(m.chatId);
-      if (forActive) { addMsg('user' + (m.ultra ? ' ultra' : ''), m.text); startWork(); setSendStop(true); }
+      if (forActive) { addUserMsg(m.text, m.images, m.ultra); startWork(); setSendStop(true); }
       break;
   }
 }
@@ -556,6 +556,7 @@ function renderHistory(messages) {
   streamEl = null;
   const frag = document.createDocumentFragment();
   for (const m of (messages || []).slice(-MAX_RENDER)) {
+    if (m.role === 'user' && m.images && m.images.length) { addUserMsg(m.text, m.images, false); continue; }
     const cls = m.role === 'user' ? 'user' : m.role === 'assistant' ? 'assistant' : 'tool';
     const { wrap, bubble } = buildMsg(cls, m.text);
     if (cls === 'assistant') bindCopy(bubble);
@@ -1253,9 +1254,11 @@ $('winClose').onclick = () => winCtl('close');
 if ($('scrollBtn')) $('scrollBtn').onclick = () => scrollDown(true);
 
 // ── Отправка ───────────────────────────────────────────
-function send(text) {
-  if (!text.trim() || !ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ type: 'message', text, chatId: activeChat }));
+function send(text, images) {
+  if ((!text.trim() && !(images && images.length)) || !ws || ws.readyState !== WebSocket.OPEN) return;
+  // На сервер шлём только mediaType+data (без url-обёртки).
+  const imgs = (images || []).map((i) => ({ mediaType: i.mediaType, data: i.data }));
+  ws.send(JSON.stringify({ type: 'message', text, chatId: activeChat, images: imgs }));
 }
 
 // Переключение кнопки между «отправить» и «стоп».
@@ -1266,12 +1269,79 @@ function setSendStop(isStop) {
   sendBtn.title = isStop ? window.t('stop') : '';
 }
 
+// Сообщение пользователя с опциональными изображениями.
+function addUserMsg(text, images, ultra) {
+  clearWelcome();
+  const wrap = document.createElement('div');
+  wrap.className = 'msg user' + (ultra ? ' ultra' : '');
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  let html = '';
+  if (images && images.length) {
+    html += '<div class="msg-images">' + images.map((im) => {
+      const src = im.url || `data:${im.mediaType || 'image/png'};base64,${im.data}`;
+      return `<img src="${src}" alt=""/>`;
+    }).join('') + '</div>';
+  }
+  if (text) { const d = document.createElement('div'); d.textContent = text; html += d.innerHTML; }
+  bubble.innerHTML = html;
+  wrap.appendChild(bubble);
+  chat.appendChild(wrap);
+  trimChat();
+  scrollDown();
+}
+
+// ── Вложения-изображения (vision) ─────────────────────
+let pendingImages = []; // [{ mediaType, data, url }]
+
+function addImageFile(file) {
+  if (!file || !/^image\//.test(file.type)) return;
+  if (pendingImages.length >= 6) { showToast('Максимум 6 изображений'); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = String(reader.result);
+    const data = dataUrl.split(',')[1] || '';
+    pendingImages.push({ mediaType: file.type, data, url: dataUrl });
+    renderAttachStrip();
+  };
+  reader.readAsDataURL(file);
+}
+function renderAttachStrip() {
+  const strip = $('attachStrip');
+  if (!strip) return;
+  strip.classList.toggle('hidden', pendingImages.length === 0);
+  strip.innerHTML = '';
+  pendingImages.forEach((img, i) => {
+    const cell = document.createElement('div');
+    cell.className = 'attach-thumb';
+    cell.innerHTML = `<img src="${img.url}" alt=""/><button class="attach-x" title="Убрать">${window.ICON.close || '×'}</button>`;
+    cell.querySelector('.attach-x').onclick = () => { pendingImages.splice(i, 1); renderAttachStrip(); };
+    strip.appendChild(cell);
+  });
+}
+if ($('attachBtn')) $('attachBtn').onclick = () => $('attachInput').click();
+if ($('attachInput')) $('attachInput').onchange = (e) => {
+  for (const f of e.target.files) addImageFile(f);
+  e.target.value = '';
+};
+// Вставка изображения из буфера обмена (Ctrl+V) прямо в поле ввода.
+if (typeof input !== 'undefined' && input) input.addEventListener('paste', (e) => {
+  const items = (e.clipboardData && e.clipboardData.items) || [];
+  let had = false;
+  for (const it of items) {
+    if (it.kind === 'file' && /^image\//.test(it.type)) { addImageFile(it.getAsFile()); had = true; }
+  }
+  if (had) e.preventDefault();
+});
+
 function submitText() {
   const text = input.value;
-  if (!text.trim()) return;
+  if (!text.trim() && !pendingImages.length) return;
+  const imgs = pendingImages.slice();
   // «ultrathink» — радужная подсветка сообщения (как в Claude — «думай дольше»).
-  addMsg('user' + (/\bultrathink\b/i.test(text) ? ' ultra' : ''), text);
-  send(text);
+  addUserMsg(text, imgs, /\bultrathink\b/i.test(text));
+  send(text, imgs);
+  pendingImages = []; renderAttachStrip();
   input.value = ''; input.style.height = 'auto'; hideSuggest();
   busyChats.add(activeChat);
   startWork();

@@ -348,7 +348,8 @@ wss.on('connection', (ws) => {
     if (payload.type !== 'message') return;
 
     const text = String(payload.text || '').trim();
-    if (!text) return;
+    const hasImages = Array.isArray(payload.images) && payload.images.length;
+    if (!text && !hasImages) return; // пусто и без картинок — игнор
 
     // Активный чат передаётся клиентом; по умолчанию 'default'.
     const session = getSession(payload.chatId || 'default');
@@ -385,8 +386,9 @@ wss.on('connection', (ws) => {
     const ultra = /\bultrathink\b/i.test(text);
     const prevThinking = session.thinking;
     if (ultra) session.thinking = 'max';
-    session.addUser(text);
-    send({ type: 'user', text, ultra }); // эхо для других клиентов (свой origin пропустит)
+    const images = Array.isArray(payload.images) ? payload.images.slice(0, 6) : null;
+    session.addUser(text, images);
+    send({ type: 'user', text, ultra, images }); // эхо для других клиентов
     send({ type: 'typing' });
     const ac = new AbortController();
     runs.set(chatId, ac);
