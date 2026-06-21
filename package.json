@@ -31,12 +31,19 @@
     "directories": {
       "output": "dist"
     },
+    "compression": "maximum",
+    "electronLanguages": [
+      "en-US",
+      "ru"
+    ],
     "files": [
       "desktop/**/*",
       "server/**/*",
       "web/**/*",
       "plugin/**/*",
-      "package.json"
+      "package.json",
+      "!**/*.map",
+      "!**/*.md"
     ],
     "extraResources": [
       {
