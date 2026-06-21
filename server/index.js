@@ -21,6 +21,7 @@ import { PROVIDER_TEMPLATES } from './llm/provider-templates.js';
 import { installPlugin } from './plugin-installer.js';
 import { getBridgeToken, setBridgeToken, regenerateBridgeToken, getPcAgent, setPcAgent } from './app-config.js';
 import { listSkills, setSkillEnabled, addCustomSkill, removeCustomSkill } from './skills.js';
+import { getUsage } from './usage.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const webDir = join(__dirname, '..', 'web');
@@ -209,6 +210,13 @@ async function handleAppApi(req, res, url) {
     return sendJson(res, 200, { enabled: setPcAgent(body.enabled) });
   }
 
+  // ── Лимиты провайдера (rate limits) ──
+  if (url === '/api/usage' && req.method === 'POST') {
+    const body = await readBody(req);
+    const id = body.provider || getSession(body.chatId || 'default').provider;
+    return sendJson(res, 200, { usage: getUsage(id), provider: id });
+  }
+
   // ── ИИ-плагины (скиллы) ──
   if (url === '/api/skills' && req.method === 'GET')
     return sendJson(res, 200, { skills: listSkills() });
@@ -349,6 +357,7 @@ wss.on('connection', (ws) => {
     await session.autoTitle(); // авто-заголовок по теме, если не переименован
     session.persist();
     send({ type: 'session', info: session.info() });
+    send({ type: 'usage', usage: getUsage(session.provider) }); // обновить лимиты
     send({ type: 'chats', chats: listSessions() });
     send({ type: 'done' });
   });

@@ -110,6 +110,7 @@ function onMessage(m) {
     case 'providers': providers = m.providers; renderProviderPickers(); break;
     case 'chats': chats = m.chats; renderChats(); break;
     case 'session': applySession(m.info); break;
+    case 'usage': lastUsage = m.usage || { available: false }; renderUsageRing(); break;
   }
 }
 
@@ -569,6 +570,7 @@ function applySession(info) {
   current.provider = info.provider; current.model = info.model; current.thinking = info.thinking || 'high';
   $('chatTitle').textContent = info.title || $('chatTitle').textContent;
   updatePills();
+  loadUsage();
 }
 
 // ── Минипикеры ─────────────────────────────────────────
@@ -576,6 +578,74 @@ function updatePills() {
   $('modelPillText').textContent = current.model || 'No model';
   $('thinkPillText').textContent = THINK_LABELS[current.thinking] || 'High';
 }
+
+// ── Индикатор лимитов (кольцо) ─────────────────────────
+let lastUsage = { available: false };
+const RING_C = 2 * Math.PI * 9; // длина окружности r=9
+
+// Перерисовать кольцо: заполнение = доля ОСТАВШЕГОСЯ лимита (узкое горло).
+function renderUsageRing() {
+  const fill = document.querySelector('#usagePill .ur-fill');
+  if (!fill) return;
+  fill.style.strokeDasharray = RING_C.toFixed(2);
+  if (!lastUsage.available || lastUsage.ratio == null) {
+    // Нет данных о лимитах — серое пустое кольцо.
+    fill.style.strokeDashoffset = RING_C.toFixed(2);
+    $('usagePill').classList.add('ring-empty');
+    $('usagePill').classList.remove('ring-low');
+    return;
+  }
+  const r = Math.max(0, Math.min(1, lastUsage.ratio));
+  fill.style.strokeDashoffset = (RING_C * (1 - r)).toFixed(2);
+  $('usagePill').classList.remove('ring-empty');
+  $('usagePill').classList.toggle('ring-low', r <= 0.15); // мало осталось — красным
+}
+
+async function loadUsage() {
+  const r = await fetch('/api/usage', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ provider: current.provider, chatId: activeChat }),
+  }).then((r) => r.json()).catch(() => null);
+  if (r) { lastUsage = r.usage || { available: false }; renderUsageRing(); }
+}
+
+function renderUsagePopover() {
+  const box = $('usageBody');
+  const u = lastUsage;
+  const t = (k, d) => window.t(k) || d;
+  if (!u || !u.available) {
+    box.innerHTML = `<div class="usage-title">${t('limitsTitle', 'Лимиты')}</div>` +
+      `<div class="usage-none">${t('limitsNone', 'Данных о лимитах нет — провайдер их не присылает.')}</div>`;
+    return;
+  }
+  const pct = u.ratio != null ? Math.round(u.ratio * 100) : null;
+  const bar = (part, label) => {
+    if (!part || part.limit == null) return '';
+    const rem = part.remaining != null ? part.remaining : '—';
+    const ratio = (part.limit > 0 && part.remaining != null) ? part.remaining / part.limit : 0;
+    const w = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
+    const low = ratio <= 0.15 ? ' low' : '';
+    return `<div class="usage-row"><div class="usage-row-head"><span>${label}</span>` +
+      `<span class="usage-num">${rem} / ${part.limit}</span></div>` +
+      `<div class="usage-track"><div class="usage-fill${low}" style="width:${w}%"></div></div></div>`;
+  };
+  const reset = (u.tokens && u.tokens.reset) || (u.requests && u.requests.reset);
+  box.innerHTML =
+    `<div class="usage-title">${t('limitsTitle', 'Лимиты')} · ${u.kind}` +
+    (pct != null ? ` · ${pct}%` : '') + `</div>` +
+    bar(u.requests, t('limitsRequests', 'Запросы')) +
+    bar(u.tokens, t('limitsTokens', 'Токены')) +
+    (reset ? `<div class="usage-reset">${t('limitsReset', 'Сброс')}: ${esc(String(reset))}</div>` : '');
+}
+
+function escUsage(s) { return String(s == null ? '' : s).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])); }
+const esc = escUsage;
+
+$('usagePill').onclick = (e) => {
+  e.stopPropagation();
+  loadUsage().then(() => { renderUsagePopover(); });
+  togglePopover($('usagePopover'), $('usagePill'), () => renderUsagePopover());
+};
 function renderProviderPickers() {
   const sel = $('popProvider');
   sel.innerHTML = '';
@@ -593,7 +663,7 @@ function renderProviderPickers() {
 
 const modelPopover = $('modelPopover');
 $('modelPill').onclick = (e) => { e.stopPropagation(); togglePopover(modelPopover, $('modelPill'), () => { renderModelFilters(); loadModelList($('modelSearch').value); }); };
-$('popProvider').onchange = () => { current.provider = $('popProvider').value; loadModelList(); };
+$('popProvider').onchange = () => { current.provider = $('popProvider').value; loadModelList(); loadUsage(); };
 $('modelSearch').oninput = () => loadModelList($('modelSearch').value);
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -1020,5 +1090,7 @@ async function init() {
   document.querySelector('[data-t="aboutText"]').textContent = window.t('aboutText');
   connect();
   updatePills();
+  renderUsageRing(); // нарисовать пустое кольцо сразу
+  loadUsage();
 }
 init();

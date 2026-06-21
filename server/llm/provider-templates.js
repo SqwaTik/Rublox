@@ -4,6 +4,11 @@
 // Kimi (Moonshot), Xiaomi MiMo и др.
 export const PROVIDER_TEMPLATES = [
   {
+    id: '', label: 'Custom (любой)', kind: 'multi',
+    baseUrl: '', model: '',
+    note: 'Свой провайдер: задай ID, Base URL, протокол и ключ — подойдёт любой OpenAI/Anthropic-совместимый сервис.',
+  },
+  {
     id: 'omniroute', label: 'OmniRoute', kind: 'multi',
     baseUrl: 'https://api.omniroute.io/v1', model: '',
     note: 'Агрегатор: OpenAI, Anthropic, DeepSeek, Zhipu, MiniMax, Kimi и др.',

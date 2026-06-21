@@ -2,6 +2,7 @@
   "name": "rublox",
   "version": "0.2.0",
   "description": "Rublox — AI-ассистент для Roblox Studio: чат с любым LLM-провайдером, мост к плагину Studio, мультичаты, экономия токенов",
+  "author": "SqwaTik",
   "type": "module",
   "main": "desktop/main.cjs",
   "scripts": {
@@ -41,12 +42,22 @@
       {
         "from": "plugin",
         "to": "plugin"
+      },
+      {
+        "from": "docs",
+        "to": "docs"
       }
     ],
     "win": {
       "target": [
         {
           "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "msi",
           "arch": [
             "x64"
           ]
