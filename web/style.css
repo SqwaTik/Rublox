@@ -551,6 +551,24 @@ label.full input { width: 100%; padding: 9px 12px; border-radius: 10px; border: 
 .cselect-item:hover { background: rgba(255,255,255,0.06); }
 .cselect-item.active { color: var(--accent-2); background: rgba(255,255,255,0.04); }
 
+/* ── Вложения-изображения (vision) ── */
+.attach-btn {
+  background: none; border: none; color: var(--muted); cursor: pointer; padding: 6px;
+  display: flex; align-items: center; border-radius: 8px; flex: none;
+}
+.attach-btn:hover { color: var(--accent-2); background: rgba(255,255,255,0.06); }
+.attach-btn svg { width: 19px; height: 19px; }
+.attach-strip { display: flex; gap: 8px; flex-wrap: wrap; padding: 8px 4px 0; }
+.attach-thumb { position: relative; width: 56px; height: 56px; border-radius: 9px; overflow: hidden; border: 1px solid var(--border-2); }
+.attach-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.attach-x {
+  position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%;
+  border: none; background: rgba(0,0,0,.6); color: #fff; cursor: pointer; display: grid; place-items: center; padding: 0;
+}
+.attach-x svg { width: 11px; height: 11px; }
+.msg-images { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.msg-images img { max-width: 220px; max-height: 220px; border-radius: 9px; border: 1px solid var(--border-2); display: block; }
+
 /* ── ultrathink: радужная подсветка сообщения ── */
 .msg.ultra .bubble {
   position: relative; border: none;

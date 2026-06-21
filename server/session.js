@@ -149,8 +149,11 @@ export class Session {
     return p;
   }
 
-  addUser(text) {
-    this.messages.push({ role: 'user', content: text });
+  addUser(text, images) {
+    const m = { role: 'user', content: text };
+    // images: [{ mediaType, data(base64) }] — для vision-моделей.
+    if (Array.isArray(images) && images.length) m.images = images;
+    this.messages.push(m);
   }
 
   addAssistant(text, toolCalls) {
@@ -223,7 +226,7 @@ export class Session {
     const out = [];
     for (const m of this.messages) {
       if (m.role === 'user') {
-        out.push({ role: 'user', text: m.content });
+        out.push({ role: 'user', text: m.content, images: m.images || undefined });
       } else if (m.role === 'assistant') {
         if (m.content) out.push({ role: 'assistant', text: m.content });
         for (const tc of m.toolCalls || []) {

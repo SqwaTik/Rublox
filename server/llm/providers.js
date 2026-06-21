@@ -77,7 +77,16 @@ function canonToAnthropic(messages) {
   const out = [];
   for (const m of messages) {
     if (m.role === 'user') {
-      out.push({ role: 'user', content: m.content && m.content.length ? m.content : '…' });
+      if (m.images && m.images.length) {
+        const parts = [];
+        for (const img of m.images) {
+          parts.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType || 'image/png', data: img.data } });
+        }
+        if (m.content && m.content.length) parts.push({ type: 'text', text: m.content });
+        out.push({ role: 'user', content: parts });
+      } else {
+        out.push({ role: 'user', content: m.content && m.content.length ? m.content : '…' });
+      }
     } else if (m.role === 'assistant') {
       const blocks = [];
       if (m.content && m.content.length) blocks.push({ type: 'text', text: m.content });
@@ -225,8 +234,18 @@ function canonToOpenAI(system, messages) {
   if (system && String(system).trim()) out.push({ role: 'system', content: system });
   for (const m of messages) {
     if (m.role === 'user') {
-      // Пустой content → 400 "non-empty content". Подстраховываемся.
-      out.push({ role: 'user', content: m.content && m.content.length ? m.content : '…' });
+      if (m.images && m.images.length) {
+        // Мультимодальное сообщение: текст + картинки (vision).
+        const parts = [];
+        if (m.content && m.content.length) parts.push({ type: 'text', text: m.content });
+        for (const img of m.images) {
+          parts.push({ type: 'image_url', image_url: { url: `data:${img.mediaType || 'image/png'};base64,${img.data}` } });
+        }
+        out.push({ role: 'user', content: parts });
+      } else {
+        // Пустой content → 400 "non-empty content". Подстраховываемся.
+        out.push({ role: 'user', content: m.content && m.content.length ? m.content : '…' });
+      }
     } else if (m.role === 'assistant') {
       const hasTools = !!(m.toolCalls && m.toolCalls.length);
       const hasText = !!(m.content && m.content.length);
