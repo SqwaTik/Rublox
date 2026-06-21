@@ -21,6 +21,9 @@ import { PROVIDER_TEMPLATES } from './llm/provider-templates.js';
 import { installPlugin } from './plugin-installer.js';
 import { getBridgeToken, setBridgeToken, regenerateBridgeToken, getPcAgent, setPcAgent } from './app-config.js';
 import { listSkills, setSkillEnabled, addCustomSkill, removeCustomSkill } from './skills.js';
+import {
+  listProjects, getActiveProject, setActiveProject, createProject, updateProject, deleteProject,
+} from './projects.js';
 import { getUsage } from './usage.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -215,6 +218,35 @@ async function handleAppApi(req, res, url) {
     const body = await readBody(req);
     const id = body.provider || getSession(body.chatId || 'default').provider;
     return sendJson(res, 200, { usage: getUsage(id), provider: id });
+  }
+
+  // ── Проекты ──
+  if (url === '/api/projects' && req.method === 'GET')
+    return sendJson(res, 200, { projects: listProjects(), active: getActiveProject() });
+
+  if (url === '/api/projects/create' && req.method === 'POST') {
+    const body = await readBody(req);
+    if (!body.name) return sendJson(res, 400, { error: 'Нужно имя проекта' });
+    createProject(body);
+    return sendJson(res, 200, { projects: listProjects(), active: getActiveProject() });
+  }
+
+  if (url === '/api/projects/update' && req.method === 'POST') {
+    const body = await readBody(req);
+    updateProject(body.id, body);
+    return sendJson(res, 200, { projects: listProjects(), active: getActiveProject() });
+  }
+
+  if (url === '/api/projects/active' && req.method === 'POST') {
+    const body = await readBody(req);
+    setActiveProject(body.id);
+    return sendJson(res, 200, { projects: listProjects(), active: getActiveProject() });
+  }
+
+  if (url === '/api/projects/delete' && req.method === 'POST') {
+    const body = await readBody(req);
+    deleteProject(body.id);
+    return sendJson(res, 200, { projects: listProjects(), active: getActiveProject() });
   }
 
   // ── ИИ-плагины (скиллы) ──

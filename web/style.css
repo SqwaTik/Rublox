@@ -501,6 +501,27 @@ label.full textarea {
 .ci-edit, .title-edit { font: inherit; border: 1px solid var(--accent); border-radius: 7px; background: rgba(0,0,0,0.35); color: var(--text); padding: 4px 8px; outline: none; }
 .ci-edit { width: 100%; font-size: 13px; }
 
+/* ── Панель проекта в сайдбаре + модалка проектов ── */
+.project-bar {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 11px; margin-bottom: 8px;
+  border-radius: 10px; border: 1px solid var(--border-2); background: rgba(255,255,255,0.02);
+  color: var(--text); cursor: pointer; font-size: 13px;
+}
+.project-bar:hover { border-color: var(--border); background: rgba(255,255,255,0.05); }
+.project-bar [data-icon] svg { width: 15px; height: 15px; color: var(--accent-2); }
+.project-bar .pb-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; font-weight: 600; }
+.project-bar .chev svg { width: 12px; height: 12px; color: var(--muted); }
+.modal.modal-sm { max-width: 460px; }
+.modal-head h3 { margin: 0; font-size: 15px; }
+.project-list { display: flex; flex-direction: column; gap: 7px; margin-bottom: 14px; }
+.prj-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-2); background: rgba(255,255,255,0.02); cursor: pointer; }
+.prj-row:hover { border-color: var(--border); }
+.prj-row.active { border-color: var(--accent); background: rgba(255,255,255,0.05); }
+.prj-row .prj-main { flex: 1; min-width: 0; }
+.prj-row .prj-name { font-weight: 600; font-size: 13px; }
+.prj-row .prj-sub { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+label.full input { width: 100%; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border-2); background: var(--panel-2); color: var(--text); font-size: 13px; }
+
 /* ── Вкладка Обновления (changelog по страницам) ── */
 .upd-card { border: 1px solid var(--border-2); border-radius: 12px; padding: 14px 16px; background: rgba(255,255,255,0.02); animation: tabIn .2s ease; }
 .upd-ver { font-size: 15px; font-weight: 700; color: var(--accent-2); margin-bottom: 8px; }
