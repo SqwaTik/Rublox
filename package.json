@@ -1,6 +1,6 @@
 {
   "name": "rublox",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Rublox — AI-ассистент для Roblox Studio: чат с любым LLM-провайдером, мост к плагину Studio, мультичаты, экономия токенов",
   "type": "module",
   "main": "desktop/main.cjs",
