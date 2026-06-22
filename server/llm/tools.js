@@ -1121,6 +1121,27 @@ export const TOOLS = [
       required: ['keys'],
     },
   },
+  {
+    name: 'run_code_sandbox',
+    description:
+      'Песочница: РЕАЛЬНО исполнить фрагмент кода и увидеть вывод (а не проверять ' +
+      '«в уме»). Языки: lua, luau, javascript, typescript, python, bash, powershell. ' +
+      'Код пишется во временный файл, запускается найденным рантаймом с таймаутом, ' +
+      'возвращается stdout+stderr, код выхода и время. ВАЖНО: для Roblox-кода (game, ' +
+      'Instance, Vector3, task, workspace) нужен рантайм luau ИЛИ подключённый Studio ' +
+      '(тогда лучше run_code). Для чистой логики (алгоритмы, строки, математика) — ' +
+      'отлично подходит. Используй, чтобы проверить, что код действительно работает.',
+    parameters: {
+      type: 'object',
+      properties: {
+        language: { type: 'string', description: 'lua | luau | javascript | typescript | python | bash | powershell.' },
+        code: { type: 'string', description: 'Исходный код для исполнения.' },
+        stdin: { type: 'string', description: 'Данные, подаваемые в stdin программы (необязательно).' },
+        timeoutMs: { type: 'number', description: 'Таймаут в мс (по умолчанию 8000, максимум 60000).' },
+      },
+      required: ['language', 'code'],
+    },
+  },
 ];
 
 // Веб-инструменты доступны ВСЕГДА (и в режиме Studio, и в режиме ПК).
@@ -1137,6 +1158,7 @@ export const PC_TOOLS = new Set([
   'clipboard_read', 'clipboard_write', 'notify', 'take_screenshot', 'download_file',
   'reg_query', 'reg_set', 'run_background', 'process_output', 'process_input',
   'process_stop', 'process_list', 'git', 'launch_app', 'focus_window', 'send_keys',
+  'run_code_sandbox',
 ]);
 
 // Инструменты со спец-логикой в agent.js (не чистый проброс).

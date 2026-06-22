@@ -16,6 +16,7 @@ import {
   clipboardReadTool, clipboardWriteTool, notifyTool, screenshotTool, downloadFileTool,
   regQueryTool, regSetTool, runBackgroundTool, processOutputTool, processInputTool,
   processStopTool, processListTool, gitTool, launchAppTool, focusWindowTool, sendKeysTool,
+  runCodeSandboxTool,
 } from './local-tools.js';
 import { TOOL_NAMES, WEB_TOOLS, PC_TOOLS, SPECIAL_TOOLS, STUDIO_TOOLS } from './llm/tools.js';
 
@@ -45,6 +46,7 @@ const NON_STUDIO_HANDLED = new Set([
   'clipboard_read', 'clipboard_write', 'notify', 'take_screenshot', 'download_file',
   'reg_query', 'reg_set', 'run_background', 'process_output', 'process_input',
   'process_stop', 'process_list', 'git', 'launch_app', 'focus_window', 'send_keys',
+  'run_code_sandbox',
   'use_template', 'update_plan', 'plan_build',
 ]);
 
@@ -142,6 +144,7 @@ async function runTool(name, args) {
     case 'launch_app': return launchAppTool(args);
     case 'focus_window': return focusWindowTool(args);
     case 'send_keys': return sendKeysTool(args);
+    case 'run_code_sandbox': return runCodeSandboxTool(args);
 
     // ── Спец-инструменты (особая логика) ──
     case 'update_plan': {
@@ -223,6 +226,7 @@ function statusFor(name, args) {
     case 'launch_app': return `Запускаю ${args.app || ''}`.trim();
     case 'focus_window': return `Фокус на окно ${args.title || ''}`.trim();
     case 'send_keys': return 'Отправляю клавиши';
+    case 'run_code_sandbox': return `Выполняю код (${args.language || '?'}) в песочнице`.trim();
     case 'run_code': return 'Выполняю Lua-код в Studio';
     case 'insert_model': return `Вставляю ассет ${args.assetId || ''}`.trim();
     case 'get_console_output': return 'Читаю консоль Studio';

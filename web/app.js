@@ -251,6 +251,14 @@ if ($('prj-save')) $('prj-save').onclick = async () => {
 
 // ── Обновления (changelog по страницам) ───────────────
 const CHANGELOG = [
+  { v: 'v0.2.4', date: '', items: [
+    '17 новых ПК-инструментов: фон/stdin процессы, скриншот, буфер обмена',
+    'Уведомления, скачивание файлов, реестр Windows, git-обзор, запуск GUI',
+    'Песочница run_code_sandbox — реально исполняет js/python/lua/bash/ps',
+    'Vision: отправка изображений в чат (скрепка + вставка Ctrl+V)',
+    'Проекты: проектная папка и общая память во всех чатах',
+    'Микробаг старта: первый чат открывается автоматически',
+  ] },
   { v: 'v0.2.3', date: '', items: [
     'Чат: исправлена ошибка 400 при смене модели в середине диалога',
     'Авто-заголовок чата — один раз и по смыслу, без мусора',
@@ -370,6 +378,7 @@ function clearWelcome() { const w = chat.querySelector('.chat-welcome'); if (w) 
 function toolIcon(name) {
   if (name === 'web_search' || name === 'web_fetch') return window.ICON.globe;
   if (name === 'run_command') return window.ICON.terminal;
+  if (name === 'run_code_sandbox') return window.ICON.flask;
   if (name === 'luau_reference') return window.ICON.brain;
   if (name === 'search_assets' || name === 'insert_model') return window.ICON.download;
   if (name === 'update_plan') return window.ICON.list;
