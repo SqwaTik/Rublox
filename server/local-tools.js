@@ -10,7 +10,7 @@ import {
   readFileSync, writeFileSync, appendFileSync, mkdirSync, readdirSync,
   statSync, existsSync, rmSync, renameSync, copyFileSync, cpSync,
 } from 'node:fs';
-import { homedir, platform, arch, hostname, cpus, totalmem, freemem } from 'node:os';
+import { homedir, platform, arch, hostname, cpus, totalmem, freemem, tmpdir } from 'node:os';
 import { resolve, join, relative, sep, basename, dirname, extname } from 'node:path';
 
 const execFileAsync = promisify(execFile);
@@ -528,6 +528,113 @@ export async function sendKeysTool(args) {
     `[System.Windows.Forms.SendKeys]::SendWait($t)`
   );
   return `Клавиши отправлены активному окну (${keys.length} симв).`;
+}
+
+// ── Песочница: запуск и проверка кода ────────────────────────────────
+// Реально исполняет фрагмент кода в изолированном временном файле через
+// найденный на ПК рантайм и возвращает вывод (stdout+stderr), код выхода и
+// время. Поддержка: lua/luau, javascript, typescript, python, bash, powershell.
+// ВАЖНО: для Roblox-кода (game, Instance, Vector3, task, workspace) нужен
+// рантайм luau ИЛИ подключённый Studio (инструмент run_code) — об этом
+// сообщается, если luau не найден. Зависимостей не добавляет.
+
+const SANDBOX_LANGS = {
+  lua:        { ext: 'lua',  run: ['luau', 'lua', 'lua5.4', 'lua5.3', 'luajit'] },
+  luau:       { ext: 'luau', run: ['luau', 'lua', 'luajit'] },
+  javascript: { ext: 'mjs',  run: ['node'] },
+  js:         { ext: 'mjs',  run: ['node'] },
+  typescript: { ext: 'ts',   run: ['tsx', 'ts-node'] },
+  ts:         { ext: 'ts',   run: ['tsx', 'ts-node'] },
+  python:     { ext: 'py',   run: ['python', 'python3', 'py'] },
+  py:         { ext: 'py',   run: ['python', 'python3', 'py'] },
+  bash:       { ext: 'sh',   run: ['bash', 'sh'] },
+  sh:         { ext: 'sh',   run: ['bash', 'sh'] },
+  powershell: { ext: 'ps1',  run: ['powershell', 'pwsh'], runArgs: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File'] },
+  ps:         { ext: 'ps1',  run: ['powershell', 'pwsh'], runArgs: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File'] },
+};
+
+let sbxSeq = 0;
+
+// Существует ли рантайм? Запускаем «<cmd> --version»: ENOENT → нет; любой
+// иной исход (даже ненулевой код) → рантайм есть.
+function findRuntime(cands) {
+  return (async () => {
+    for (const c of cands) {
+      const found = await new Promise((res) => {
+        let settled = false;
+        const finish = (v) => { if (!settled) { settled = true; res(v); } };
+        let p;
+        try { p = spawn(c, ['--version'], { windowsHide: true }); }
+        catch { finish(false); return; }
+        p.on('error', (e) => finish(e && e.code !== 'ENOENT'));
+        p.on('close', () => finish(true));
+        setTimeout(() => { try { p.kill(); } catch { /* */ } finish(true); }, 4000);
+      });
+      if (found) return c;
+    }
+    return null;
+  })();
+}
+
+// Запуск процесса с захватом вывода, таймаутом и опциональным stdin.
+function execCapture(cmd, argv, { timeout = 8000, stdin = '' } = {}) {
+  return new Promise((res) => {
+    let out = '', err = '', settled = false;
+    const cap = 1 << 20; // 1 МБ на поток
+    let child;
+    try { child = spawn(cmd, argv, { windowsHide: true }); }
+    catch (e) { res({ code: null, out: '', err: e.message, timedOut: false }); return; }
+    const timer = setTimeout(() => {
+      try { child.kill(); } catch { /* */ }
+      if (!settled) { settled = true; res({ code: null, out, err, timedOut: true }); }
+    }, timeout);
+    child.stdout.on('data', (d) => { out += d; if (out.length > cap) out = out.slice(-cap); });
+    child.stderr.on('data', (d) => { err += d; if (err.length > cap) err = err.slice(-cap); });
+    child.on('error', (e) => { if (!settled) { settled = true; clearTimeout(timer); res({ code: null, out, err: err + '\n' + e.message, timedOut: false }); } });
+    child.on('close', (code) => { if (!settled) { settled = true; clearTimeout(timer); res({ code, out, err, timedOut: false }); } });
+    if (stdin) { try { child.stdin.write(stdin); } catch { /* */ } }
+    try { child.stdin.end(); } catch { /* */ }
+  });
+}
+
+export async function runCodeSandboxTool(args) {
+  const lang = String(args.language || '').toLowerCase().trim();
+  const code = String(args.code || '');
+  if (!code) return 'Пустой код — нечего исполнять.';
+  const spec = SANDBOX_LANGS[lang];
+  if (!spec) {
+    return `Неизвестный язык «${lang || '?'}». Поддержка: lua, luau, javascript, ` +
+      'typescript, python, bash, powershell.';
+  }
+  const timeout = Math.min(Math.max(Number(args.timeoutMs) || 8000, 500), 60000);
+
+  const runtime = await findRuntime(spec.run);
+  if (!runtime) {
+    if (lang === 'lua' || lang === 'luau') {
+      return 'Рантайм Lua/Luau на ПК не найден. Чтобы исполнять Roblox-код (game, ' +
+        'Instance, Vector3, task, workspace) в РЕАЛЬНОМ контексте — подключи Studio и ' +
+        'используй run_code. Для проверки чистой Lua-логики установи Luau CLI ' +
+        '(github.com/luau-lang/luau → luau-windows.zip), положи luau.exe в PATH.';
+    }
+    return `Рантайм для «${lang}» не найден (искал: ${spec.run.join(', ')}). ` +
+      'Установи его и добавь в PATH.';
+  }
+
+  const file = join(tmpdir(), `rublox-sbx-${Date.now()}-${++sbxSeq}.${spec.ext}`);
+  try {
+    writeFileSync(file, code, 'utf8');
+    const argv = spec.runArgs ? [...spec.runArgs, file] : [file];
+    const t0 = Date.now();
+    const r = await execCapture(runtime, argv, { timeout, stdin: args.stdin ? String(args.stdin) : '' });
+    const ms = Date.now() - t0;
+    const status = r.timedOut ? `таймаут ${timeout}мс` : (r.code === 0 ? 'ok' : `код выхода ${r.code}`);
+    const body = (r.out || '') + (r.err ? (r.out ? '\n' : '') + '[stderr]\n' + r.err : '');
+    return `[${runtime} · ${status} · ${ms}мс]\n` + (clip(body) || '(нет вывода)');
+  } catch (e) {
+    return `Ошибка песочницы: ${e.message}`;
+  } finally {
+    try { rmSync(file, { force: true }); } catch { /* временный файл */ }
+  }
 }
 
 // ── Вспомогательное ──
