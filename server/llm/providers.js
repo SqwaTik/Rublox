@@ -18,6 +18,29 @@ import { getProvider, effectiveKind } from './registry.js';
 import { toolsForAnthropic, toolsForOpenAI } from './tools.js';
 import { captureLimits } from '../usage.js';
 
+// Человекочитаемое объяснение типовых HTTP-ошибок провайдера. Сырой ответ часто
+// приходит как HTML (403-страница Cloudflare/роутера) — показывать его в чате
+// бессмысленно. Даём короткую подсказку, что делать.
+function explainHttpError(status, rawMsg) {
+  const raw = String(rawMsg || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  const short = raw.length > 300 ? raw.slice(0, 300) + '…' : raw;
+  const hint = {
+    400: 'неверный запрос к модели (возможно, модель не поддерживает инструменты или формат истории).',
+    401: 'провайдер отклонил ключ (401). Проверьте API-ключ в Настройках → Провайдеры.',
+    403: 'провайдер запретил доступ (403). Ключ не подходит для этой модели, либо модель/регион недоступны у этого провайдера. Попробуйте другую модель или провайдера.',
+    404: 'модель не найдена у провайдера (404). Проверьте имя модели.',
+    413: 'слишком большой запрос (413). Сократите историю — /compact.',
+    429: 'превышен лимит запросов (429). Подождите или смените провайдера.',
+    500: 'внутренняя ошибка провайдера (500). Попробуйте ещё раз.',
+    502: 'провайдер недоступен (502/шлюз). Попробуйте позже.',
+    503: 'провайдер перегружен (503). Попробуйте позже.',
+  }[status];
+  let msg = `LLM HTTP ${status}`;
+  if (hint) msg += `: ${hint}`;
+  if (short && !hint) msg += `: ${short}`;
+  return msg;
+}
+
 // ── Низкоуровневый HTTP ────────────────────────────────
 async function httpJson(url, options, providerId) {
   const res = await fetch(url, options);
@@ -32,7 +55,7 @@ async function httpJson(url, options, providerId) {
   }
   if (!res.ok) {
     const msg = data?.error?.message || data?.raw || res.statusText;
-    throw new Error(`LLM HTTP ${res.status}: ${msg}`);
+    throw new Error(explainHttpError(res.status, msg));
   }
   return data;
 }
@@ -41,7 +64,9 @@ async function httpJson(url, options, providerId) {
 async function readSSE(res, onEvent) {
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(`LLM HTTP ${res.status}: ${errText || res.statusText}`);
+    let msg = errText;
+    try { const j = JSON.parse(errText); msg = j?.error?.message || j?.raw || errText; } catch { /* не JSON */ }
+    throw new Error(explainHttpError(res.status, msg || res.statusText));
   }
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -70,6 +95,44 @@ async function readSSE(res, onEvent) {
       }
     }
   }
+}
+
+// Санитизация истории перед отправкой провайдеру. Гарантируем, что КАЖДЫЙ
+// tool_use (toolCall ассистента) имеет tool_result сразу после него. Иначе и
+// Anthropic, и OpenAI кидают 400 ("tool_use ids were found without tool_result
+// blocks"). Такое бывает при прерывании (Stop), падении стрима или повторе id —
+// лечим вместо падения.
+function sanitizeMessages(messages) {
+  const src = Array.isArray(messages) ? messages : [];
+  const resultIds = new Set();
+  for (const m of src) {
+    if (m.role === 'tool' && m.toolCallId) resultIds.add(m.toolCallId);
+  }
+  const out = [];
+  const seenCallIds = new Set();
+  for (let i = 0; i < src.length; i++) {
+    const m = src[i];
+    if (m.role === 'assistant') {
+      const calls = Array.isArray(m.toolCalls) ? m.toolCalls : [];
+      const keptCalls = [];
+      const synthResults = [];
+      for (const tc of calls) {
+        if (!tc || !tc.id || seenCallIds.has(tc.id)) continue;
+        seenCallIds.add(tc.id);
+        keptCalls.push(tc);
+        if (!resultIds.has(tc.id)) {
+          synthResults.push({ role: 'tool', toolCallId: tc.id, name: tc.name, content: 'Прервано: результат не получен.' });
+        }
+      }
+      out.push({ ...m, toolCalls: keptCalls });
+      for (const r of synthResults) out.push(r);
+    } else if (m.role === 'tool') {
+      if (m.toolCallId && seenCallIds.has(m.toolCallId)) out.push(m);
+    } else {
+      out.push(m);
+    }
+  }
+  return out;
 }
 
 // ── Anthropic: преобразование канона ───────────────────
@@ -377,7 +440,7 @@ function resolve(provider) {
 
 export async function complete({ provider, system, messages, model, temperature, maxTokens, useTools, studioConnected, pcAllowed, thinking, signal }) {
   const p = resolve(provider);
-  const opts = { system, messages, model, temperature, maxTokens: maxTokens || config.maxTokens, useTools, studioConnected, pcAllowed, thinking, signal };
+  const opts = { system, messages: sanitizeMessages(messages), model, temperature, maxTokens: maxTokens || config.maxTokens, useTools, studioConnected, pcAllowed, thinking, signal };
   return effectiveKind(p.kind) === 'anthropic' ? callAnthropic(p, opts) : callOpenAI(p, opts);
 }
 
@@ -386,7 +449,7 @@ export async function streamComplete(
   onDelta = () => {}
 ) {
   const p = resolve(provider);
-  const opts = { system, messages, model, temperature, maxTokens: maxTokens || config.maxTokens, useTools, studioConnected, pcAllowed, thinking, signal };
+  const opts = { system, messages: sanitizeMessages(messages), model, temperature, maxTokens: maxTokens || config.maxTokens, useTools, studioConnected, pcAllowed, thinking, signal };
   return effectiveKind(p.kind) === 'anthropic'
     ? streamAnthropic(p, opts, onDelta)
     : streamOpenAI(p, opts, onDelta);

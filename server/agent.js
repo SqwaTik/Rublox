@@ -9,18 +9,67 @@ import { renderTemplate } from './templates.js';
 import { getPcAgent } from './app-config.js';
 import { getLuauReference } from './luau-reference.js';
 import { webSearch, webFetch, searchAssets } from './web.js';
+import { waitForAnswer } from './asks.js';
+import { renderBlueprintPNG } from './png.js';
 import {
-  runCommand, readFileTool, writeFileTool, editFileTool, listDirTool, makeDirTool,
+  runCommand, readFileTool, writeFileTool, editFileTool, multiEditTool, listDirTool, makeDirTool,
   deletePathTool, moveTool, copyTool, appendFileTool, readLinesTool, statTool,
   existsTool, globTool, grepTool, treeTool, sysInfoTool, cwdTool,
   clipboardReadTool, clipboardWriteTool, notifyTool, screenshotTool, downloadFileTool,
   regQueryTool, regSetTool, runBackgroundTool, processOutputTool, processInputTool,
   processStopTool, processListTool, gitTool, launchAppTool, focusWindowTool, sendKeysTool,
-  runCodeSandboxTool,
+  runCodeSandboxTool, installRuntimeTool,
 } from './local-tools.js';
 import { TOOL_NAMES, WEB_TOOLS, PC_TOOLS, SPECIAL_TOOLS, STUDIO_TOOLS } from './llm/tools.js';
 
 const MAX_STEPS = 8; // защита от бесконечного цикла tool-use
+
+// Последний генплан по чату — для аудита и vision-ревью (review_blueprint).
+const lastBlueprint = new Map(); // chatId -> { name, width, depth, items }
+
+// Детерминированный аудит генплана: ловим типичные ошибки (мелкий масштаб, узкие
+// коридоры, пересечения комнат, выход за участок) — точнее, чем «на глаз». Слова
+// в label определяют тип зоны. Возвращает массив строк-замечаний.
+function auditBlueprint(items, W, D) {
+  const warns = [];
+  const isWall = (l) => /(стен|wall|забор|fence|перегород)/i.test(l);
+  const isDoor = (l) => /(двер|door|проём|проем|вход|арка|gate)/i.test(l);
+  const isCorridor = (l) => /(коридор|corridor|hall|проход|туннель|tunnel)/i.test(l);
+  const isRoom = (l) => /(комнат|room|зал|hall|спальн|кухн|офис|лобби|lobby|арен|холл)/i.test(l);
+  const list = items.map((it) => ({
+    label: String(it.label || ''),
+    x: Number(it.x) || 0, z: Number(it.z) || 0,
+    w: Math.abs(Number(it.w) || 0), d: Math.abs(Number(it.d) || 0),
+  }));
+  for (const it of list) {
+    const tag = `«${it.label || 'зона'}»`;
+    if (it.x < 0 || it.z < 0 || it.x + it.w > W + 0.5 || it.z + it.d > D + 0.5) {
+      warns.push(`${tag} выходит за границы участка ${W}×${D}.`);
+    }
+    if (isWall(it.label) || isDoor(it.label)) continue; // стены/проёмы тонкие — это норма
+    const mn = Math.min(it.w, it.d);
+    if (isCorridor(it.label)) {
+      if (mn < 12) warns.push(`${tag} коридор слишком узкий (${mn} studs) — игроку тесно, делай ≥12–16.`);
+    } else if (isRoom(it.label)) {
+      if (mn < 24) warns.push(`${tag} комната мелковата (${it.w}×${it.d}) — обычно от 30×30 studs.`);
+    } else if (mn > 0 && mn < 8) {
+      warns.push(`${tag} очень узкая зона (${it.w}×${it.d}) — проверь масштаб.`);
+    }
+  }
+  // Пересечения НЕ-стен зон (комнаты не должны накладываться друг на друга).
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const a = list[i], b = list[j];
+      if (isWall(a.label) || isWall(b.label) || isDoor(a.label) || isDoor(b.label)) continue;
+      const ox = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+      const oz = Math.max(0, Math.min(a.z + a.d, b.z + b.d) - Math.max(a.z, b.z));
+      if (ox > 1 && oz > 1) {
+        warns.push(`«${a.label || 'зона'}» и «${b.label || 'зона'}» пересекаются (${ox.toFixed(0)}×${oz.toFixed(0)}).`);
+      }
+    }
+  }
+  return warns;
+}
 
 // Server-side значения по умолчанию для нескольких Studio-инструментов.
 // Остальные проксируются в плагин как есть.
@@ -40,14 +89,14 @@ function applyStudioDefaults(name, args) {
 // (веб + ПК + спец). Используется самопроверкой ниже.
 const NON_STUDIO_HANDLED = new Set([
   'web_search', 'web_fetch', 'search_assets', 'luau_reference',
-  'run_command', 'read_file', 'write_file', 'edit_file', 'list_dir', 'make_dir',
+  'run_command', 'read_file', 'write_file', 'edit_file', 'multi_edit', 'list_dir', 'make_dir',
   'read_lines', 'append_file', 'delete_path', 'move_path', 'copy_path',
   'glob_files', 'grep_files', 'tree', 'stat_path', 'path_exists', 'sys_info', 'get_cwd',
   'clipboard_read', 'clipboard_write', 'notify', 'take_screenshot', 'download_file',
   'reg_query', 'reg_set', 'run_background', 'process_output', 'process_input',
   'process_stop', 'process_list', 'git', 'launch_app', 'focus_window', 'send_keys',
-  'run_code_sandbox',
-  'use_template', 'update_plan', 'plan_build',
+  'run_code_sandbox', 'install_runtime',
+  'use_template', 'update_plan', 'plan_build', 'ask_user', 'write_script', 'review_blueprint',
 ]);
 
 // САМОПРОВЕРКА при старте: каждая объявленная схема должна иметь обработчик, иначе
@@ -79,7 +128,8 @@ function trimResult(s) {
 }
 
 // Исполняет один tool-call и возвращает результат для модели.
-async function runTool(name, args) {
+// ctx = { chatId, signal, onEvent } — для интерактивных инструментов (ask_user).
+async function runTool(name, args, ctx = {}) {
   switch (name) {
     // ── Веб (доступно всегда) ──
     case 'web_search':
@@ -100,6 +150,8 @@ async function runTool(name, args) {
       return writeFileTool(args);
     case 'edit_file':
       return editFileTool(args);
+    case 'multi_edit':
+      return multiEditTool(args);
     case 'list_dir':
       return listDirTool(args);
     case 'make_dir':
@@ -145,6 +197,7 @@ async function runTool(name, args) {
     case 'focus_window': return focusWindowTool(args);
     case 'send_keys': return sendKeysTool(args);
     case 'run_code_sandbox': return runCodeSandboxTool(args);
+    case 'install_runtime': return installRuntimeTool(args);
 
     // ── Спец-инструменты (особая логика) ──
     case 'update_plan': {
@@ -153,13 +206,58 @@ async function runTool(name, args) {
       const mark = (s) => (s === 'done' ? '[x]' : s === 'in_progress' ? '[~]' : '[ ]');
       return 'План обновлён:\n' + steps.map((s) => `${mark(s.status)} ${s.text}`).join('\n');
     }
+    case 'ask_user': {
+      // Вопрос с кнопками уже отрисован фронтом из события tool_call. Ждём ответ
+      // пользователя (клик по кнопке или свой текст) и возвращаем его модели.
+      const q = String(args.question || 'Как продолжить?');
+      const answer = await waitForAnswer(ctx.chatId || 'default', q, { signal: ctx.signal });
+      return `Пользователь выбрал: ${answer}`;
+    }
+    case 'review_blueprint': {
+      // Рендерим последний генплан в PNG и отдаём картинку модели (vision).
+      const bp = lastBlueprint.get(ctx.chatId || 'default');
+      if (!bp) return 'Нет генплана для проверки — сначала вызови plan_build.';
+      let img;
+      try { img = renderBlueprintPNG(bp); } catch (e) { return `Не удалось отрендерить генплан: ${e.message}`; }
+      // __image будет извлечён в runAgent и добавлен как изображение в историю.
+      return {
+        __image: { mediaType: img.mediaType, data: img.data },
+        text: `Генплан «${bp.name || ''}» (${img.W}×${img.D}, ${img.legend.length} зон) отрендерен в ` +
+          `изображение и отправлен тебе на проверку. Легенда (номер → зона):\n${img.legend.join('\n')}\n` +
+          'Посмотри на схему: оцени компоновку, пропорции и масштаб. При проблемах переделай plan_build.',
+      };
+    }
+    case 'write_script': {
+      // Создать/заменить скрипт в Studio. Удобная обёртка: при подключённом
+      // Studio проксируем в плагин как create_script; иначе показываем код.
+      const scriptType = args.scriptType || 'Script';
+      if (!bridge.isConnected()) {
+        return `Studio не подключён — скрипт «${args.name || scriptType}» не создан. Код:\n${args.source || ''}`;
+      }
+      const r = await bridge.dispatch('create_script', {
+        scriptType, parent: args.parent, name: args.name, source: args.source,
+      });
+      return resultToString(r);
+    }
     case 'plan_build': {
-      // Генплан рисует фронтенд (вид сверху); модели возвращаем сводку зон.
+      // Генплан рисует фронтенд (вид сверху); модели возвращаем сводку + аудит.
       const items = Array.isArray(args.items) ? args.items : [];
-      const lines = items.map((it) =>
-        `• ${it.label || 'зона'}: x${it.x} z${it.z} ${it.w}×${it.d}`);
-      return `Генплан «${args.name || 'постройка'}» (${items.length} зон) показан пользователю:\n` +
-        lines.join('\n') + '\nДалее строй через build_parts по этому плану.';
+      let W = Number(args.width) || 0, D = Number(args.depth) || 0;
+      for (const it of items) {
+        W = Math.max(W, (Number(it.x) || 0) + (Number(it.w) || 0));
+        D = Math.max(D, (Number(it.z) || 0) + (Number(it.d) || 0));
+      }
+      // Запоминаем для review_blueprint (vision-проверка).
+      lastBlueprint.set(ctx.chatId || 'default', { name: args.name, width: W, depth: D, items });
+      const lines = items.map((it, i) =>
+        `${i + 1}. ${it.label || 'зона'}: x${it.x} z${it.z} ${it.w}×${it.d}`);
+      const warns = auditBlueprint(items, W, D);
+      const audit = warns.length
+        ? `\n\nПРОВЕРКА ГЕНПЛАНА — найдены проблемы, ИСПРАВЬ их новым plan_build перед постройкой:\n- ${warns.join('\n- ')}`
+        : '\n\nПРОВЕРКА ГЕНПЛАНА: критичных проблем масштаба/геометрии не найдено — можно строить.';
+      return `Генплан «${args.name || 'постройка'}» (${items.length} зон, участок ${W}×${D}) показан пользователю:\n` +
+        lines.join('\n') + audit + '\n\nДалее: при необходимости вызови review_blueprint для визуальной ' +
+        'проверки, затем строй build_parts по этому плану.';
     }
     case 'use_template': {
       const code = renderTemplate(args.templateId, args.params);
@@ -186,6 +284,10 @@ async function runTool(name, args) {
 function statusFor(name, args) {
   switch (name) {
     case 'update_plan': return 'Обновляю план';
+    case 'ask_user': return 'Жду ответ пользователя';
+    case 'review_blueprint': return 'Проверяю генплан визуально';
+    case 'write_script': return `Пишу скрипт ${args.name || args.scriptType || ''}`.trim();
+    case 'edit_script': return `Правлю скрипт ${args.path || ''}`.trim();
     case 'plan_build': return `Проектирую генплан: ${args.name || ''}`.trim();
     case 'build_parts': return `Строю (${(args.parts || []).length} частей)`.trim();
     case 'web_search': return `Ищу в интернете: ${args.query || ''}`.trim();
@@ -196,6 +298,7 @@ function statusFor(name, args) {
     case 'read_file': return `Читаю файл ${args.path || ''}`.trim();
     case 'write_file': return `Пишу файл ${args.path || ''}`.trim();
     case 'edit_file': return `Правлю файл ${args.path || ''}`.trim();
+    case 'multi_edit': return `Правлю файл ${args.path || ''} (${(args.edits || []).length})`.trim();
     case 'list_dir': return `Смотрю каталог ${args.path || ''}`.trim();
     case 'make_dir': return `Создаю каталог ${args.path || ''}`.trim();
     case 'read_lines': return `Читаю файл ${args.path || ''}`.trim();
@@ -227,6 +330,7 @@ function statusFor(name, args) {
     case 'focus_window': return `Фокус на окно ${args.title || ''}`.trim();
     case 'send_keys': return 'Отправляю клавиши';
     case 'run_code_sandbox': return `Выполняю код (${args.language || '?'}) в песочнице`.trim();
+    case 'install_runtime': return `Устанавливаю рантайм ${args.language || 'luau'}`.trim();
     case 'run_code': return 'Выполняю Lua-код в Studio';
     case 'insert_model': return `Вставляю ассет ${args.assetId || ''}`.trim();
     case 'get_console_output': return 'Читаю консоль Studio';
@@ -343,6 +447,7 @@ export async function runAgent(session, onEvent = () => {}, opts = {}) {
       return reply.text; // финальный ответ без действий
     }
 
+    const pendingImages = []; // картинки от инструментов (review_blueprint) — для vision
     for (const tc of reply.toolCalls) {
       if (signal?.aborted) {
         session.addToolResult(tc.id, tc.name, 'Остановлено пользователем.');
@@ -352,8 +457,14 @@ export async function runAgent(session, onEvent = () => {}, opts = {}) {
       onEvent('tool_call', { name: tc.name, args: tc.args });
       let resultStr;
       try {
-        const result = await runTool(tc.name, tc.args);
-        resultStr = resultToString(result);
+        const result = await runTool(tc.name, tc.args, { chatId: session.id, signal, onEvent });
+        // Инструмент мог вернуть изображение (review_blueprint) — копим для модели.
+        if (result && typeof result === 'object' && result.__image) {
+          pendingImages.push(result.__image);
+          resultStr = resultToString(result.text || 'Изображение готово.');
+        } else {
+          resultStr = resultToString(result);
+        }
         onEvent('tool_result', { name: tc.name, ok: true, result: resultStr });
       } catch (err) {
         resultStr = `Ошибка: ${err.message}`;
@@ -361,6 +472,13 @@ export async function runAgent(session, onEvent = () => {}, opts = {}) {
       }
       outTokens += tok(resultStr);
       session.addToolResult(tc.id, tc.name, trimResult(resultStr));
+    }
+    // После всех результатов добавляем картинки как user-сообщение (vision видит их
+    // на следующем шаге). Делаем это ПОСЛЕ цикла, чтобы не разорвать пары
+    // tool_use↔tool_result (иначе провайдер вернёт 400).
+    if (pendingImages.length && !signal?.aborted) {
+      session.addUser('Вот отрендеренная схема генплана. Оцени компоновку, пропорции и ' +
+        'масштаб; если что-то не так — переделай plan_build, иначе переходи к build_parts.', pendingImages);
     }
   }
 

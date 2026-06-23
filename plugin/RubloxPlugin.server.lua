@@ -458,6 +458,48 @@ local function toolSetScriptSource(args)
 	return "Исходник обновлён: " .. inst:GetFullName() .. " (" .. #source .. " символов)"
 end
 
+-- Точечная правка скрипта: заменить oldText → newText (одно или все вхождения).
+local function toolEditScript(args)
+	local inst = resolvePath(args.path)
+	if not inst:IsA("LuaSourceContainer") then
+		error("Объект не является скриптом: " .. inst.ClassName)
+	end
+	local oldText = tostring(args.oldText or "")
+	local newText = tostring(args.newText or "")
+	if oldText == "" then error("oldText пустой") end
+	local source = inst.Source
+	-- Поиск по простому совпадению (без паттернов): найдём подстроку plain.
+	local idx = string.find(source, oldText, 1, true)
+	if not idx then
+		error("Фрагмент не найден в скрипте — проверь точное совпадение (get_script_source).")
+	end
+	local replaced
+	if args.replaceAll then
+		-- Заменяем все вхождения через ручной проход (plain, без magic-символов).
+		local out, pos = {}, 1
+		while true do
+			local s, e = string.find(source, oldText, pos, true)
+			if not s then table.insert(out, string.sub(source, pos)); break end
+			table.insert(out, string.sub(source, pos, s - 1))
+			table.insert(out, newText)
+			pos = e + 1
+		end
+		replaced = table.concat(out)
+	else
+		-- Одно вхождение: проверим уникальность.
+		local second = string.find(source, oldText, idx + #oldText, true)
+		if second then
+			error("Фрагмент встречается несколько раз — уточни oldText или replaceAll=true.")
+		end
+		replaced = string.sub(source, 1, idx - 1) .. newText .. string.sub(source, idx + #oldText)
+	end
+	local ok = pcall(function()
+		ScriptEditorService:UpdateSourceAsync(inst, function() return replaced end)
+	end)
+	if not ok then inst.Source = replaced end
+	return "Скрипт изменён: " .. inst:GetFullName()
+end
+
 -- Найти объекты по имени и/или классу во всём дереве. Возвращает пути.
 local function toolFindInstances(args)
 	local nameQuery = args.name and tostring(args.name):lower() or nil
@@ -933,6 +975,7 @@ local TOOLS = {
 	rename_instance = toolRenameInstance,
 	get_script_source = toolGetScriptSource,
 	set_script_source = toolSetScriptSource,
+	edit_script = toolEditScript,
 	find_instances = toolFindInstances,
 	select_instance = toolSelectInstance,
 	get_selection = toolGetSelection,

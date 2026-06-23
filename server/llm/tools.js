@@ -357,6 +357,43 @@ export const TOOLS = [
     },
   },
   {
+    name: 'write_script',
+    description:
+      'СКРИПТИНГ: создать готовый скрипт с кодом и сразу разместить в правильном ' +
+      'сервисе Studio. Это основной инструмент для написания логики (вместо run_code). ' +
+      'scriptType: "Script" (серверная логика → ServerScriptService), "LocalScript" ' +
+      '(ввод/камера/UI → StarterPlayer.StarterPlayerScripts), "ModuleScript" (общий код ' +
+      '→ ReplicatedStorage). Пиши чистый рабочий Luau, проверяй API через luau_reference.',
+    parameters: {
+      type: 'object',
+      properties: {
+        scriptType: { type: 'string', description: 'Script | LocalScript | ModuleScript.' },
+        parent: { type: 'string', description: 'Путь к родителю (сервису/папке). Если не указан — подбери по типу.' },
+        name: { type: 'string', description: 'Осмысленное имя скрипта.' },
+        source: { type: 'string', description: 'Полный исходный код Luau.' },
+      },
+      required: ['scriptType', 'source'],
+    },
+  },
+  {
+    name: 'edit_script',
+    description:
+      'СКРИПТИНГ: точечно изменить существующий скрипт в Studio — заменить фрагмент ' +
+      'oldText → newText (как diff-правка, без перезаписи всего кода). Сначала прочитай ' +
+      'код через get_script_source. По умолчанию заменяет одно вхождение (нужна ' +
+      'уникальность фрагмента); replaceAll=true — все.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Путь к скрипту, напр. "game.ServerScriptService.Main".' },
+        oldText: { type: 'string', description: 'Существующий фрагмент кода.' },
+        newText: { type: 'string', description: 'Чем заменить.' },
+        replaceAll: { type: 'boolean', description: 'Заменить все вхождения.' },
+      },
+      required: ['path', 'oldText', 'newText'],
+    },
+  },
+  {
     name: 'call_method',
     description:
       'Вызвать метод объекта (напр. PivotTo, MakeJoints, BreakJoints, MoveTo). Аргументы ' +
@@ -410,11 +447,13 @@ export const TOOLS = [
   {
     name: 'build_parts',
     description:
-      'Батч-постройка: создать Model из множества частей за один вызов — основа быстрых ' +
-      'и красивых построек по генплану. Сначала спроектируй план через plan_build, затем ' +
-      'строй здесь. Каждая часть: shape (Block/Ball/Cylinder/Wedge), position{x,y,z}, ' +
-      'size{x,y,z}, color "#RRGGBB", material (Plastic/Wood/Concrete/Neon/Metal/Glass/Brick/' +
-      'Grass/Slate), orientation{x,y,z} в градусах, anchored.',
+      'Батч-постройка: создать Model из множества частей за ОДИН вызов — основа быстрых и ' +
+      'красивых построек по генплану. Сначала спроектируй plan_build, затем строй здесь, ' +
+      'передав СРАЗУ все части (пол, стены сегментами по периметру, потолок, колонны). ' +
+      'МАСШТАБ: используй реальные размеры в studs (высота стен 12–18, толщина 1–2, проёмы ' +
+      'шириной 7+). Строй крупно — не уменьшай. Каждая часть: shape (Block/Ball/Cylinder/' +
+      'Wedge), position{x,y,z} — ЦЕНТР части, size{x,y,z}, color "#RRGGBB", material (Plastic/' +
+      'Wood/Concrete/Neon/Metal/Glass/Brick/Grass/Slate), orientation{x,y,z} в градусах, anchored.',
     parameters: {
       type: 'object',
       properties: {
@@ -722,10 +761,12 @@ export const TOOLS = [
   {
     name: 'plan_build',
     description:
-      'Спроектировать ГЕНПЛАН постройки (вид сверху) — он сразу показывается пользователю ' +
-      'как схема. Используй ПЕРЕД build_parts для красивых, продуманных построек: сначала ' +
-      'разметь зоны/footprint-ы сверху (комнаты, стены, дорожки), покажи план, затем строй. ' +
-      'Координаты в studs: x — вправо, z — вглубь (вид сверху).',
+      'Спроектировать ГЕНПЛАН постройки (вид сверху) — он показывается пользователю как ' +
+      'чистая схема с пронумерованными зонами и легендой сбоку. Используй ПЕРЕД build_parts ' +
+      'для продуманных построек: размечай зоны (комнаты, стены, дорожки) в РЕАЛЬНОМ масштабе ' +
+      'studs. Ориентиры: комната от 30×30, коридор шириной 12–16, толщина стен 1–2. Координаты: ' +
+      'x — вправо, z — вглубь. Не делай мелко — игрок ростом 5 studs должен свободно ходить. ' +
+      'Дай каждой зоне понятный label и цвет; нумерация на схеме проставится автоматически.',
     parameters: {
       type: 'object',
       properties: {
@@ -751,6 +792,47 @@ export const TOOLS = [
       },
       required: ['items'],
     },
+  },
+
+  {
+    name: 'ask_user',
+    description:
+      'Задать пользователю вопрос с КНОПКАМИ выбора, когда реально есть развилка и ' +
+      'твой выбор сильно влияет на результат (например: стиль постройки, язык скрипта, ' +
+      'удалять ли существующее). Возвращает выбранный вариант. Используй РЕДКО и только ' +
+      'при настоящем выборе — если решение очевидно или это мелочь, НЕ спрашивай, делай ' +
+      'сам. Не задавай больше одного вопроса подряд. Доступно всегда.',
+    parameters: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: 'Короткий вопрос пользователю.' },
+        options: {
+          type: 'array',
+          description: '2–4 варианта ответа (кнопки).',
+          items: {
+            type: 'object',
+            properties: {
+              label: { type: 'string', description: 'Короткая надпись на кнопке.' },
+              description: { type: 'string', description: 'Пояснение варианта (необязательно).' },
+            },
+            required: ['label'],
+          },
+        },
+        allowOther: { type: 'boolean', description: 'Разрешить свой вариант текстом (по умолчанию true).' },
+      },
+      required: ['question', 'options'],
+    },
+  },
+
+  {
+    name: 'review_blueprint',
+    description:
+      'Отрендерить последний генплан (plan_build) в КАРТИНКУ и посмотреть на неё своими ' +
+      'глазами — если ты vision-модель. Полезно проверить компоновку, пропорции и масштаб ' +
+      '«как выглядит» перед постройкой. Вызывай ПОСЛЕ plan_build. На следующем шаге ты ' +
+      'получишь изображение схемы: оцени её и при проблемах переделай plan_build, иначе строй. ' +
+      'Если ты НЕ умеешь видеть изображения — не вызывай, опирайся на текстовый аудит генплана.',
+    parameters: { type: 'object', properties: {} },
   },
 
   // ── ПК-инструменты (когда Studio не подключён) ──
@@ -805,6 +887,33 @@ export const TOOLS = [
         replaceAll: { type: 'boolean', description: 'Заменить все вхождения.' },
       },
       required: ['path', 'oldText', 'newText'],
+    },
+  },
+  {
+    name: 'multi_edit',
+    description:
+      'Несколько точечных правок ОДНОГО файла за один вызов (как MultiEdit в Claude Code). ' +
+      'Правки применяются по порядку; если хоть одна не находит фрагмент — НИЧЕГО не ' +
+      'сохраняется (атомарно). Эффективнее, чем много вызовов edit_file подряд.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Путь к файлу.' },
+        edits: {
+          type: 'array',
+          description: 'Список правок по порядку.',
+          items: {
+            type: 'object',
+            properties: {
+              oldText: { type: 'string', description: 'Существующий фрагмент.' },
+              newText: { type: 'string', description: 'Чем заменить.' },
+              replaceAll: { type: 'boolean', description: 'Заменить все вхождения этого фрагмента.' },
+            },
+            required: ['oldText', 'newText'],
+          },
+        },
+      },
+      required: ['path', 'edits'],
     },
   },
   {
@@ -1122,6 +1231,21 @@ export const TOOLS = [
     },
   },
   {
+    name: 'install_runtime',
+    description:
+      'Установить рантайм для песочницы, если его нет. Для luau/lua — СКАЧИВАЕТ ' +
+      'официальный релиз с GitHub, распаковывает в папку приложения и САМ добавляет в ' +
+      'PATH (и в процесс, и в пользовательский PATH Windows). Для node/python — только ' +
+      'проверяет наличие. Вызови перед run_code_sandbox с lua/luau, если рантайма может ' +
+      'не быть; run_code_sandbox и сам ставит Luau автоматически при первом запуске.',
+    parameters: {
+      type: 'object',
+      properties: {
+        language: { type: 'string', description: 'luau (по умолчанию) | lua | python | javascript.' },
+      },
+    },
+  },
+  {
     name: 'run_code_sandbox',
     description:
       'Песочница: РЕАЛЬНО исполнить фрагмент кода и увидеть вывод (а не проверять ' +
@@ -1150,7 +1274,7 @@ export const WEB_TOOLS = new Set([
 ]);
 // ПК-инструменты (Studio не подключён).
 export const PC_TOOLS = new Set([
-  'run_command', 'read_file', 'write_file', 'edit_file', 'list_dir', 'make_dir',
+  'run_command', 'read_file', 'write_file', 'edit_file', 'multi_edit', 'list_dir', 'make_dir',
   'read_lines', 'append_file', 'delete_path', 'move_path', 'copy_path',
   'glob_files', 'grep_files', 'tree', 'stat_path', 'path_exists',
   'sys_info', 'get_cwd',
@@ -1158,14 +1282,14 @@ export const PC_TOOLS = new Set([
   'clipboard_read', 'clipboard_write', 'notify', 'take_screenshot', 'download_file',
   'reg_query', 'reg_set', 'run_background', 'process_output', 'process_input',
   'process_stop', 'process_list', 'git', 'launch_app', 'focus_window', 'send_keys',
-  'run_code_sandbox',
+  'run_code_sandbox', 'install_runtime',
 ]);
 
 // Инструменты со спец-логикой в agent.js (не чистый проброс).
-export const SPECIAL_TOOLS = new Set(['use_template', 'update_plan', 'plan_build']);
+export const SPECIAL_TOOLS = new Set(['use_template', 'update_plan', 'plan_build', 'ask_user', 'review_blueprint']);
 
-// Инструменты, доступные ВСЕГДА (в любом режиме): планирование и генплан.
-export const ALWAYS_TOOLS = new Set(['update_plan', 'plan_build']);
+// Инструменты, доступные ВСЕГДА (в любом режиме): планирование, генплан, вопрос.
+export const ALWAYS_TOOLS = new Set(['update_plan', 'plan_build', 'ask_user', 'review_blueprint']);
 
 // Имена всех объявленных инструментов.
 export const TOOL_NAMES = TOOLS.map((t) => t.name);

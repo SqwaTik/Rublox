@@ -25,6 +25,7 @@ import {
   listProjects, getActiveProject, setActiveProject, createProject, updateProject, deleteProject,
 } from './projects.js';
 import { getUsage } from './usage.js';
+import { resolveAsk, hasPendingAsk } from './asks.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const webDir = join(__dirname, '..', 'web');
@@ -342,6 +343,22 @@ wss.on('connection', (ws) => {
     if (payload.type === 'stop') {
       const ac = runs.get(payload.chatId || 'default');
       if (ac) ac.abort();
+      return;
+    }
+
+    // Ответ на вопрос ask_user (клик по кнопке или свой вариант). Не идёт в LLM
+    // как новое сообщение — разрешает ожидающий Promise агента.
+    if (payload.type === 'ask_answer') {
+      const cid = payload.chatId || 'default';
+      const answer = String(payload.answer || '');
+      const ok = resolveAsk(cid, answer);
+      if (ok) {
+        // Эхо выбора как сообщение пользователя — чтобы было видно в истории.
+        const session = getSession(cid);
+        const msg = JSON.stringify({ type: 'ask_answered', chatId: cid, answer, origin: ws._cid });
+        for (const c of clients) if (c.readyState === c.OPEN) c.send(msg);
+        session.persist();
+      }
       return;
     }
 

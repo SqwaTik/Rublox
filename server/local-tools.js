@@ -12,6 +12,7 @@ import {
 } from 'node:fs';
 import { homedir, platform, arch, hostname, cpus, totalmem, freemem, tmpdir } from 'node:os';
 import { resolve, join, relative, sep, basename, dirname, extname } from 'node:path';
+import { ensureRuntime } from './runtime-installer.js';
 
 const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
@@ -105,6 +106,37 @@ export function editFileTool(args) {
     return `Файл изменён: ${path} (замен: ${args.replaceAll ? count : 1})`;
   } catch (e) {
     return `Ошибка правки: ${e.message}`;
+  }
+}
+
+// Пакетные правки одного файла за один вызов (аналог MultiEdit в Claude Code):
+// массив { oldText, newText, replaceAll } применяется ПО ПОРЯДКУ к одному файлу.
+// Любая неуспешная правка прерывает всё (файл не сохраняется) — атомарность.
+export function multiEditTool(args) {
+  const path = String(args.path || '');
+  if (!path) return 'Не указан path.';
+  const edits = Array.isArray(args.edits) ? args.edits : [];
+  if (!edits.length) return 'Нужен массив edits.';
+  try {
+    let src = readFileSync(path, 'utf8');
+    const report = [];
+    for (let i = 0; i < edits.length; i++) {
+      const e = edits[i] || {};
+      const oldStr = String(e.oldText ?? '');
+      const newStr = String(e.newText ?? '');
+      if (!oldStr) return `Правка #${i + 1}: пустой oldText — отменено, файл не изменён.`;
+      const count = src.split(oldStr).length - 1;
+      if (count === 0) return `Правка #${i + 1}: фрагмент не найден — отменено, файл не изменён.`;
+      if (count > 1 && !e.replaceAll) {
+        return `Правка #${i + 1}: фрагмент встречается ${count} раз — уточните контекст или replaceAll=true. Файл не изменён.`;
+      }
+      src = e.replaceAll ? src.split(oldStr).join(newStr) : src.replace(oldStr, newStr);
+      report.push(`#${i + 1}: ${e.replaceAll ? count : 1} замен`);
+    }
+    writeFileSync(path, src, 'utf8');
+    return `Файл изменён: ${path} (${edits.length} правок: ${report.join(', ')})`;
+  } catch (e) {
+    return `Ошибка пакетной правки: ${e.message}`;
   }
 }
 
@@ -597,6 +629,13 @@ function execCapture(cmd, argv, { timeout = 8000, stdin = '' } = {}) {
   });
 }
 
+// Явная установка рантайма по запросу ИИ (или перед серией прогонов в песочнице).
+export async function installRuntimeTool(args) {
+  const lang = String(args.language || args.runtime || 'luau').toLowerCase();
+  const r = await ensureRuntime(lang);
+  return (r.ok ? '✓ ' : '✗ ') + r.message;
+}
+
 export async function runCodeSandboxTool(args) {
   const lang = String(args.language || '').toLowerCase().trim();
   const code = String(args.code || '');
@@ -608,16 +647,19 @@ export async function runCodeSandboxTool(args) {
   }
   const timeout = Math.min(Math.max(Number(args.timeoutMs) || 8000, 500), 60000);
 
-  const runtime = await findRuntime(spec.run);
-  if (!runtime) {
-    if (lang === 'lua' || lang === 'luau') {
-      return 'Рантайм Lua/Luau на ПК не найден. Чтобы исполнять Roblox-код (game, ' +
-        'Instance, Vector3, task, workspace) в РЕАЛЬНОМ контексте — подключи Studio и ' +
-        'используй run_code. Для проверки чистой Lua-логики установи Luau CLI ' +
-        '(github.com/luau-lang/luau → luau-windows.zip), положи luau.exe в PATH.';
+  let runtime = await findRuntime(spec.run);
+  // Авто-установка: если рантайма нет, для Lua/Luau пробуем скачать и поставить.
+  if (!runtime && (lang === 'lua' || lang === 'luau') && args.autoInstall !== false) {
+    const inst = await ensureRuntime('luau');
+    if (inst.ok) runtime = await findRuntime(spec.run);
+    if (!runtime) {
+      return 'Не удалось автоматически установить Luau: ' + inst.message +
+        '\nМожно подключить Studio и использовать run_code для Roblox-кода.';
     }
+  }
+  if (!runtime) {
     return `Рантайм для «${lang}» не найден (искал: ${spec.run.join(', ')}). ` +
-      'Установи его и добавь в PATH.';
+      'Установи его и добавь в PATH (или вызови install_runtime).';
   }
 
   const file = join(tmpdir(), `rublox-sbx-${Date.now()}-${++sbxSeq}.${spec.ext}`);
