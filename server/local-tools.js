@@ -109,7 +109,7 @@ export function editFileTool(args) {
   }
 }
 
-// Пакетные правки одного файла за один вызов (аналог MultiEdit в Claude Code):
+// Пакетные правки одного файла за один вызов (мульти-правка):
 // массив { oldText, newText, replaceAll } применяется ПО ПОРЯДКУ к одному файлу.
 // Любая неуспешная правка прерывает всё (файл не сохраняется) — атомарность.
 export function multiEditTool(args) {

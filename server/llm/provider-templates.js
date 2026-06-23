@@ -31,7 +31,7 @@ export const PROVIDER_TEMPLATES = [
   {
     id: 'agentrouter', label: 'AgentRouter', kind: 'anthropic',
     baseUrl: 'https://agentrouter.org', model: 'claude-opus-4-8',
-    note: 'Anthropic-совместимый прокси (Claude Code / Codex / Gemini).',
+    note: 'Anthropic-совместимый прокси (Claude / Codex / Gemini).',
   },
   {
     id: 'deepseek', label: 'DeepSeek', kind: 'openai',

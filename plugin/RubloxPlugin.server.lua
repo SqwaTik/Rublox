@@ -774,6 +774,171 @@ local function toolBuildParts(args)
 	return "Построено частей: " .. made .. " в модели " .. model:GetFullName()
 end
 
+-- ── Точная постройка комнаты (геометрию считает плагин, а не модель «на глаз») ──
+-- build_room строит прямоугольную комнату по РЕАЛЬНЫМ размерам: пол, потолок и
+-- 4 стены по периметру с правильной толщиной, плюс дверные проёмы (вырезы в
+-- стене делаются разбиением стены на сегменты). Это убирает «кривые» постройки,
+-- где модель ошибается в координатах/перекрытиях.
+local function makePart(name, cf, size, color, material, parent)
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Anchored = true
+	p.Size = size
+	p.CFrame = cf
+	if color then p.Color = colorFromHex(color) end
+	if material then pcall(function() p.Material = Enum.Material[material] end) end
+	p.Parent = parent
+	return p
+end
+
+local function toolBuildRoom(args)
+	local parent = (args.parent and args.parent ~= "") and resolvePath(args.parent) or workspace
+	local model = Instance.new("Model")
+	model.Name = args.name or "Room"
+
+	local w = tonumber(args.width) or 40      -- по X
+	local d = tonumber(args.depth) or 40      -- по Z
+	local h = tonumber(args.height) or 14     -- высота стен
+	local t = tonumber(args.wallThickness) or 1
+	local cx = tonumber((args.center or {}).x) or 0
+	local cy = tonumber((args.center or {}).y) or 0
+	local cz = tonumber((args.center or {}).z) or 0
+	local wallColor = args.wallColor or "#C8B560"
+	local wallMat = args.wallMaterial or "Concrete"
+	local floorColor = args.floorColor or "#5A5A5A"
+	local floorMat = args.floorMaterial or "Concrete"
+
+	local floorY = cy
+	local ceilY = cy + h
+	-- Пол и потолок.
+	makePart("Floor", CFrame.new(cx, floorY, cz), Vector3.new(w, t, d), floorColor, floorMat, model)
+	if args.ceiling ~= false then
+		makePart("Ceiling", CFrame.new(cx, ceilY, cz), Vector3.new(w, t, d), args.ceilingColor or wallColor, args.ceilingMaterial or wallMat, model)
+	end
+
+	-- Проёмы: список { side = "north|south|east|west", offset = 0 (по центру стены), width, height }.
+	-- Стена с проёмом разбивается на левый/правый сегмент + перемычку сверху.
+	local doors = {}
+	for _, dr in ipairs(args.doorways or {}) do
+		local side = tostring(dr.side or "south")
+		doors[side] = doors[side] or {}
+		table.insert(doors[side], {
+			offset = tonumber(dr.offset) or 0,
+			width = tonumber(dr.width) or 7,
+			height = tonumber(dr.height) or 10,
+		})
+	end
+
+	local midY = floorY + h / 2
+	-- Строит стену вдоль оси с возможными проёмами. horizontal=true → стена тянется по X.
+	local function buildWall(sideName, fixedCoord, horizontal)
+		local length = horizontal and w or d
+		local list = doors[sideName]
+		local function place(segStart, segEnd)
+			local segLen = segEnd - segStart
+			if segLen <= 0.05 then return end
+			local centerAlong = (segStart + segEnd) / 2 - length / 2
+			local cf, size
+			if horizontal then
+				cf = CFrame.new(cx + centerAlong, midY, fixedCoord)
+				size = Vector3.new(segLen, h, t)
+			else
+				cf = CFrame.new(fixedCoord, midY, cz + centerAlong)
+				size = Vector3.new(t, h, segLen)
+			end
+			makePart(sideName .. "_Wall", cf, size, wallColor, wallMat, model)
+		end
+		if not list or #list == 0 then
+			place(0, length)
+			return
+		end
+		-- Сортируем проёмы по позиции и строим сегменты между ними.
+		table.sort(list, function(a, b) return a.offset < b.offset end)
+		local cursor = 0
+		for _, dr in ipairs(list) do
+			local doorCenter = length / 2 + dr.offset
+			local left = doorCenter - dr.width / 2
+			local right = doorCenter + dr.width / 2
+			place(cursor, math.max(cursor, left))
+			-- Перемычка над проёмом (от верха двери до потолка).
+			local lintelH = h - dr.height
+			if lintelH > 0.05 then
+				local along = (left + right) / 2 - length / 2
+				local cf, size
+				if horizontal then
+					cf = CFrame.new(cx + along, floorY + dr.height + lintelH / 2, fixedCoord)
+					size = Vector3.new(dr.width, lintelH, t)
+				else
+					cf = CFrame.new(fixedCoord, floorY + dr.height + lintelH / 2, cz + along)
+					size = Vector3.new(t, lintelH, dr.width)
+				end
+				makePart(sideName .. "_Lintel", cf, size, wallColor, wallMat, model)
+			end
+			cursor = right
+		end
+		place(cursor, length)
+	end
+
+	-- Координаты стен по периметру.
+	buildWall("north", cz - d / 2, true)   -- дальняя по Z
+	buildWall("south", cz + d / 2, true)   -- ближняя по Z
+	buildWall("west", cx - w / 2, false)   -- левая по X
+	buildWall("east", cx + w / 2, false)   -- правая по X
+
+	model.Parent = parent
+	pcall(function() model:SetAttribute("RubloxRoom", true) end)
+	local n = #model:GetChildren()
+	return "Комната «" .. model.Name .. "» построена: " .. n .. " частей, " ..
+		w .. "×" .. d .. "×" .. h .. " studs в " .. model:GetFullName()
+end
+
+-- Применить реалистичный материал и/или текстуру (обои/кирпич/дерево) к объекту
+-- или ко всем Part контейнера. Текстура накладывается через Texture на грани с
+-- тайлингом (StudsPerTile) — это и есть «обои» по запросу реалистики.
+local function toolApplySurface(args)
+	local inst = resolvePath(args.path)
+	local targets = {}
+	if inst:IsA("BasePart") then
+		table.insert(targets, inst)
+	else
+		for _, d in ipairs(inst:GetDescendants()) do
+			if d:IsA("BasePart") then table.insert(targets, d) end
+		end
+	end
+	if #targets == 0 then return "Не найдено Part для применения поверхности." end
+
+	local faces = args.faces
+	if type(faces) ~= "table" or #faces == 0 then
+		faces = { "Front", "Back", "Left", "Right", "Top", "Bottom" }
+	end
+	local studsPerTile = tonumber(args.studsPerTile) or 8
+
+	for _, part in ipairs(targets) do
+		if args.material then pcall(function() part.Material = Enum.Material[args.material] end) end
+		if args.color then part.Color = colorFromHex(args.color) end
+		if args.texture and args.texture ~= "" then
+			-- Убираем прежние текстуры Rublox, чтобы не плодить дубли.
+			for _, ch in ipairs(part:GetChildren()) do
+				if ch:IsA("Texture") and ch.Name == "RubloxSurface" then ch:Destroy() end
+			end
+			for _, faceName in ipairs(faces) do
+				local ok, face = pcall(function() return Enum.NormalId[faceName] end)
+				if ok then
+					local tx = Instance.new("Texture")
+					tx.Name = "RubloxSurface"
+					tx.Texture = args.texture
+					tx.Face = face
+					tx.StudsPerTileU = studsPerTile
+					tx.StudsPerTileV = studsPerTile
+					tx.Parent = part
+				end
+			end
+		end
+	end
+	return "Поверхность применена к " .. #targets .. " part (material=" ..
+		tostring(args.material) .. (args.texture and ", texture" or "") .. ")"
+end
+
 -- ── Интерактивность и UI ─────────────────────────────────────────────
 
 -- Создать ProximityPrompt на объекте (кнопка-подсказка «нажмите E»).
@@ -919,6 +1084,146 @@ local function toolAddParticle(args)
 	return "ParticleEmitter добавлен на " .. inst:GetFullName()
 end
 
+-- ── Анимации, твины и катсцены ───────────────────────────────────────
+
+-- Парсит EasingStyle/Direction из строки в Enum (с дефолтами).
+local function easingStyle(s)
+	local ok, v = pcall(function() return Enum.EasingStyle[s] end)
+	return ok and v or Enum.EasingStyle.Quad
+end
+local function easingDir(s)
+	local ok, v = pcall(function() return Enum.EasingDirection[s] end)
+	return ok and v or Enum.EasingDirection.Out
+end
+
+-- Анимировать свойства объекта через TweenService (Position, Size, Color,
+-- Transparency, Orientation, CFrame и т.п.). Значения парсятся как у свойств.
+local TweenService = game:GetService("TweenService")
+local function toolTweenInstance(args)
+	local inst = resolvePath(args.path)
+	local goal = {}
+	for k, v in pairs(args.properties or {}) do
+		goal[k] = parseValue(v)
+	end
+	if next(goal) == nil then error("Не заданы целевые properties для твина.") end
+	local info = TweenInfo.new(
+		tonumber(args.duration) or 1,
+		easingStyle(args.easingStyle or "Quad"),
+		easingDir(args.easingDirection or "Out"),
+		tonumber(args.repeatCount) or 0,
+		args.reverses == true,
+		tonumber(args.delay) or 0
+	)
+	local tween = TweenService:Create(inst, info, goal)
+	tween:Play()
+	return "Твин запущен на " .. inst:GetFullName() .. " (" .. (tonumber(args.duration) or 1) .. "с)"
+end
+
+-- Создать катсцену: генерирует скрипт, который двигает камеру по ключевым
+-- кадрам (CFrame) с плавными переходами TweenService. Кадры: { position{x,y,z},
+-- lookAt{x,y,z}, duration, easingStyle }. По умолчанию скрипт в ServerScriptService
+-- запускать НЕ нужно — это LocalScript для StarterPlayerScripts (камера клиентская).
+local function toolCreateCutscene(args)
+	local frames = args.frames or {}
+	if #frames == 0 then error("Нужен хотя бы один кадр (frames).") end
+	-- Собираем Lua-таблицу кадров в исходник.
+	local parts = {}
+	for _, f in ipairs(frames) do
+		local p = f.position or {}
+		local l = f.lookAt or {}
+		table.insert(parts, string.format(
+			"  { pos = Vector3.new(%s,%s,%s), look = Vector3.new(%s,%s,%s), dur = %s, style = %q },",
+			tostring(tonumber(p.x) or 0), tostring(tonumber(p.y) or 10), tostring(tonumber(p.z) or 0),
+			tostring(tonumber(l.x) or 0), tostring(tonumber(l.y) or 0), tostring(tonumber(l.z) or 0),
+			tostring(tonumber(f.duration) or 3), tostring(f.easingStyle or "Sine")
+		))
+	end
+	local framesSrc = "{\n" .. table.concat(parts, "\n") .. "\n}"
+	local autoStart = args.autoStart ~= false
+	local source = [[
+-- Катсцена, сгенерированная Rublox. Двигает камеру по ключевым кадрам.
+local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local player = Players.LocalPlayer
+local cam = workspace.CurrentCamera
+
+local FRAMES = ]] .. framesSrc .. [[
+
+local function playCutscene()
+	cam.CameraType = Enum.CameraType.Scriptable
+	if #FRAMES > 0 then
+		cam.CFrame = CFrame.lookAt(FRAMES[1].pos, FRAMES[1].look)
+	end
+	for i = 2, #FRAMES do
+		local f = FRAMES[i]
+		local goal = CFrame.lookAt(f.pos, f.look)
+		local info = TweenInfo.new(f.dur, Enum.EasingStyle[f.style] or Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+		local proxy = Instance.new("CFrameValue")
+		proxy.Value = cam.CFrame
+		local conn = RunService.RenderStepped:Connect(function()
+			cam.CFrame = proxy.Value
+		end)
+		local tween = TweenService:Create(proxy, info, { Value = goal })
+		tween:Play()
+		tween.Completed:Wait()
+		conn:Disconnect()
+		proxy:Destroy()
+	end
+	cam.CameraType = Enum.CameraType.Custom
+end
+
+]] .. (autoStart and "playCutscene()\n" or "-- Вызови playCutscene(), когда нужно\nreturn playCutscene\n")
+
+	local parentPath = args.parent
+	local parent
+	if parentPath and parentPath ~= "" then
+		parent = resolvePath(parentPath)
+	else
+		parent = game:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts")
+			or game:GetService("StarterPlayer")
+	end
+	local scr = Instance.new("LocalScript")
+	scr.Name = args.name or "Cutscene"
+	scr.Source = source
+	scr.Parent = parent
+	return "Катсцена создана: " .. scr:GetFullName() .. " (" .. #frames .. " кадров). "
+		.. "Запусти Play (F5), чтобы увидеть."
+end
+
+-- Проиграть анимацию по assetId на Humanoid (или его модели). В edit-режиме
+-- создаёт Animation+скрипт; реальное воспроизведение — в Play.
+local function toolPlayAnimation(args)
+	local inst = resolvePath(args.path)
+	local humanoid
+	if inst:IsA("Humanoid") then
+		humanoid = inst
+	else
+		humanoid = inst:FindFirstChildOfClass("Humanoid")
+	end
+	if not humanoid then error("Не найден Humanoid в " .. inst:GetFullName()) end
+	local anim = Instance.new("Animation")
+	anim.Name = args.name or "RubloxAnim"
+	anim.AnimationId = tostring(args.animationId or "")
+	anim.Parent = humanoid
+	-- В edit-режиме LoadAnimation/Play не сработает, поэтому навешиваем скрипт,
+	-- который проиграет анимацию в Play.
+	local looped = args.looped == true
+	local scr = Instance.new("Script")
+	scr.Name = (args.name or "Anim") .. "_Player"
+	scr.Source = string.format([[
+local hum = script.Parent:FindFirstChildOfClass("Humanoid") or script.Parent
+local anim = Instance.new("Animation")
+anim.AnimationId = %q
+local track = hum:LoadAnimation(anim)
+track.Looped = %s
+track:Play()
+]], tostring(args.animationId or ""), tostring(looped))
+	scr.Parent = humanoid.Parent
+	return "Анимация " .. tostring(args.animationId) .. " назначена на " .. humanoid:GetFullName()
+		.. ". Проиграется в Play."
+end
+
 -- ── Звук ─────────────────────────────────────────────────────────────
 
 -- Добавить Sound (на объект или в SoundService), опц. автозапуск.
@@ -928,11 +1233,43 @@ local function toolAddSound(args)
 	local sound = Instance.new("Sound")
 	sound.Name = args.name or "Sound"
 	sound.SoundId = args.soundId or ""
-	if tonumber(args.volume) then sound.Volume = tonumber(args.volume) end
+	-- Громкость по умолчанию умеренная (0.5): сырые ассеты часто ОЧЕНЬ громкие.
+	sound.Volume = tonumber(args.volume) or 0.5
+	if tonumber(args.playbackSpeed) then sound.PlaybackSpeed = tonumber(args.playbackSpeed) end
+	if tonumber(args.rollOffMinDistance) then sound.RollOffMinDistance = tonumber(args.rollOffMinDistance) end
+	if tonumber(args.rollOffMaxDistance) then sound.RollOffMaxDistance = tonumber(args.rollOffMaxDistance) end
 	sound.Looped = args.looped == true
 	if args.playOnCreate then pcall(function() sound:Play() end) end
 	sound.Parent = parent
-	return "Sound создан: " .. sound:GetFullName()
+	return "Sound создан: " .. sound:GetFullName() .. " (Volume " .. tostring(sound.Volume) .. ")"
+end
+
+-- Изменить громкость/параметры существующего звука по пути (или всех Sound в плейсе).
+local function toolSetSoundVolume(args)
+	local applied = {}
+	local function tune(snd)
+		if tonumber(args.volume) then snd.Volume = tonumber(args.volume) end
+		if tonumber(args.playbackSpeed) then snd.PlaybackSpeed = tonumber(args.playbackSpeed) end
+		if args.looped ~= nil then snd.Looped = args.looped == true end
+		table.insert(applied, snd:GetFullName())
+	end
+	if args.path and args.path ~= "" then
+		local inst = resolvePath(args.path)
+		if inst:IsA("Sound") then
+			tune(inst)
+		else
+			for _, d in ipairs(inst:GetDescendants()) do
+				if d:IsA("Sound") then tune(d) end
+			end
+		end
+	else
+		-- Без пути — применяем ко ВСЕМ Sound в плейсе (быстрая «сделай тише всё»).
+		for _, d in ipairs(game:GetDescendants()) do
+			if d:IsA("Sound") then tune(d) end
+		end
+	end
+	if #applied == 0 then return "Звуков не найдено." end
+	return "Настроено звуков: " .. #applied .. " (Volume " .. tostring(args.volume) .. ")"
 end
 
 -- ── Освещение сцены и атмосфера ──────────────────────────────────────
@@ -950,8 +1287,416 @@ local function toolSetLighting(args)
 	return "Lighting настроен: " .. (#applied > 0 and table.concat(applied, ", ") or "без изменений")
 end
 
+-- ── Семантический поиск по скриптам плейса ───────────────────────────────
+-- Аналог code_search, но для Lua-скриптов в дереве игры. Расширяет запрос
+-- синонимами и возвращает релевантные ФУНКЦИИ целиком (а не весь скрипт) —
+-- экономит токены на этапе анализа.
+local SCRIPT_SYNONYMS = {
+	{ "auth", "login", "signin", "session", "token", "авторизац", "вход", "логин" },
+	{ "save", "persist", "store", "datastore", "сохран", "запис" },
+	{ "load", "fetch", "get", "загруз", "получ" },
+	{ "delete", "remove", "destroy", "удал" },
+	{ "update", "set", "change", "обнов", "измен" },
+	{ "damage", "hit", "attack", "health", "урон", "атак", "здоров" },
+	{ "move", "walk", "position", "movement", "перемещ", "движен" },
+	{ "spawn", "create", "new", "созда", "спавн" },
+	{ "animation", "animate", "tween", "cutscene", "анимац", "катсцен" },
+	{ "sound", "audio", "music", "звук", "аудио" },
+	{ "event", "handler", "callback", "remote", "событ", "обработчик" },
+	{ "ui", "gui", "button", "frame", "интерфейс", "кнопк" },
+	{ "validate", "check", "verify", "провер", "валидац" },
+}
+
+local function expandTokens(query)
+	local q = string.lower(query or "")
+	local tokens = {}
+	for w in string.gmatch(q, "[%wа-яё_]+") do
+		if #w >= 2 then tokens[w] = 1.0 end
+	end
+	for _, group in ipairs(SCRIPT_SYNONYMS) do
+		local hit = false
+		for _, w in ipairs(group) do
+			if string.find(q, w, 1, true) then hit = true break end
+		end
+		if hit then
+			for _, w in ipairs(group) do
+				if not tokens[w] then tokens[w] = 0.6 end
+			end
+		end
+	end
+	return tokens
+end
+
+-- Извлекает функции из исходника Lua с границами (по балансу function…end).
+local function extractLuaFunctions(source)
+	local lines = {}
+	for line in (source .. "\n"):gmatch("(.-)\n") do
+		table.insert(lines, line)
+	end
+	local funcs = {}
+	for i, line in ipairs(lines) do
+		local name = string.match(line, "function%s+([%w_.:]+)")
+			or string.match(line, "([%w_.:]+)%s*=%s*function")
+		if name then
+			local depth, started, endLine = 0, false, i
+			for j = i, math.min(#lines, i + 300) do
+				local lj = lines[j]
+				-- Баланс блоков Lua: function/if/for/while/do/repeat увеличивают, end/until — уменьшают.
+				local opens = select(2, lj:gsub("%f[%w]function%f[%W]", ""))
+					+ select(2, lj:gsub("%f[%w]if%f[%W]", ""))
+					+ select(2, lj:gsub("%f[%w]for%f[%W]", ""))
+					+ select(2, lj:gsub("%f[%w]while%f[%W]", ""))
+					+ select(2, lj:gsub("%f[%w]do%f[%W]", ""))
+					+ select(2, lj:gsub("%f[%w]repeat%f[%W]", ""))
+				local closes = select(2, lj:gsub("%f[%w]end%f[%W]", ""))
+					+ select(2, lj:gsub("%f[%w]until%f[%W]", ""))
+				-- "do" внутри for/while уже посчитан выше как +1, что задваивает; компенсируем.
+				closes = closes + select(2, lj:gsub("%f[%w]for%f[%W]", ""))
+					+ select(2, lj:gsub("%f[%w]while%f[%W]", ""))
+				depth = depth + opens - closes
+				started = started or depth > 0
+				endLine = j
+				if started and depth <= 0 then break end
+			end
+			table.insert(funcs, { name = name, startLine = i, endLine = endLine, lines = lines })
+		end
+	end
+	return funcs, lines
+end
+
+local function toolSearchScripts(args)
+	local query = tostring(args.query or "")
+	if query == "" then error("query не указан") end
+	local limit = math.min(tonumber(args.limit) or 5, 12)
+	local tokens = expandTokens(query)
+	local phrase = string.lower(query)
+
+	local scripts = {}
+	local roots = { workspace, game:GetService("ReplicatedStorage"), ServerStorage,
+		game:GetService("ServerScriptService"), game:GetService("StarterGui"),
+		game:GetService("StarterPlayer"), game:GetService("ReplicatedFirst") }
+	for _, root in ipairs(roots) do
+		for _, d in ipairs(root:GetDescendants()) do
+			if d:IsA("LuaSourceContainer") then
+				table.insert(scripts, d)
+			end
+		end
+	end
+
+	local candidates = {}
+	for _, scr in ipairs(scripts) do
+		local ok, source = pcall(function() return scr.Source end)
+		if ok and source and #source > 0 then
+			local funcs = extractLuaFunctions(source)
+			local units = funcs
+			if #units == 0 then
+				local lines = {}
+				for line in (source .. "\n"):gmatch("(.-)\n") do table.insert(lines, line) end
+				units = { { name = scr.Name, startLine = 1, endLine = math.min(#lines, 40), lines = lines } }
+			end
+			for _, fn in ipairs(units) do
+				local bodyLines = {}
+				for k = fn.startLine, fn.endLine do
+					table.insert(bodyLines, fn.lines[k] or "")
+				end
+				local body = table.concat(bodyLines, "\n")
+				local bodyLower = string.lower(body)
+				local nameLower = string.lower(fn.name)
+				local score = 0
+				for tok, w in pairs(tokens) do
+					if string.find(nameLower, tok, 1, true) then score = score + w * 8 end
+					local _, occ = bodyLower:gsub(tok, "")
+					if occ > 0 then score = score + w * math.min(occ, 5) * 0.8 end
+				end
+				if #phrase >= 4 and string.find(bodyLower, phrase, 1, true) then score = score + 6 end
+				if score > 0 then
+					table.insert(candidates, {
+						path = scr:GetFullName(), name = fn.name,
+						startLine = fn.startLine, endLine = fn.endLine,
+						body = body, score = score,
+					})
+				end
+			end
+		end
+	end
+
+	if #candidates == 0 then
+		return "По запросу «" .. query .. "» в скриптах ничего релевантного не найдено. "
+			.. "Попробуй другие слова или get_studio_context."
+	end
+	table.sort(candidates, function(a, b) return a.score > b.score end)
+
+	local out = { "Семантический поиск по скриптам «" .. query .. "» — найдено фрагментов: "
+		.. #candidates .. ". Топ релевантных функций целиком:" }
+	for i = 1, math.min(limit, #candidates) do
+		local c = candidates[i]
+		local snippet = c.body
+		if #snippet > 2400 then snippet = string.sub(snippet, 1, 2400) .. "\n…(тело длинное — обрезано)" end
+		table.insert(out, "\n### " .. c.path .. ":" .. c.startLine .. "-" .. c.endLine
+			.. " — " .. c.name .. " · score " .. string.format("%.1f", c.score)
+			.. "\n```lua\n" .. snippet .. "\n```")
+	end
+	table.insert(out, "\nЭто релевантные функции целиком — правь прямо здесь через edit_script, "
+		.. "без чтения всего скрипта.")
+	return table.concat(out, "\n")
+end
+
+-- ── Studio: история, ландшафт, NPC, камера ──────────────
+local Terrain = workspace.Terrain
+
+-- {x,y,z} (или {X,Y,Z}) → Vector3 с дефолтом для пропущенных компонент.
+local function vec3(t, dflt)
+	t = t or {}
+	return Vector3.new(
+		tonumber(t.x) or tonumber(t.X) or dflt,
+		tonumber(t.y) or tonumber(t.Y) or dflt,
+		tonumber(t.z) or tonumber(t.Z) or dflt
+	)
+end
+
+local function toolUndo(args)
+	local n = math.max(1, tonumber(args.count) or 1)
+	local done = 0
+	for _ = 1, n do
+		local ok = pcall(function() ChangeHistoryService:Undo() end)
+		if not ok then break end
+		done = done + 1
+	end
+	return "Отменено шагов: " .. done
+end
+
+local function toolRedo(args)
+	local n = math.max(1, tonumber(args.count) or 1)
+	local done = 0
+	for _ = 1, n do
+		local ok = pcall(function() ChangeHistoryService:Redo() end)
+		if not ok then break end
+		done = done + 1
+	end
+	return "Повторено шагов: " .. done
+end
+
+local function toolFillTerrain(args)
+	local shape = string.lower(tostring(args.shape or "block"))
+	local center = vec3(args.center, 0)
+	local material = Enum.Material.Grass
+	if args.material then
+		local ok, m = pcall(function() return Enum.Material[args.material] end)
+		if ok and m then material = m end
+	end
+	if string.lower(tostring(args.operation or "fill")) == "cut" then
+		material = Enum.Material.Air
+	end
+	if shape == "ball" then
+		local r = tonumber(args.radius) or 16
+		Terrain:FillBall(center, r, material)
+		return "Terrain: сфера R=" .. r
+	elseif shape == "cylinder" then
+		local r = tonumber(args.radius) or 16
+		local h = tonumber(args.height) or 16
+		Terrain:FillCylinder(CFrame.new(center), h, r, material)
+		return "Terrain: цилиндр R=" .. r .. " H=" .. h
+	else
+		local size = vec3(args.size, 16)
+		Terrain:FillBlock(CFrame.new(center), size, material)
+		return "Terrain: блок " .. string.format("%g×%g×%g", size.X, size.Y, size.Z)
+	end
+end
+
+local function toolClearTerrain(args)
+	Terrain:Clear()
+	return "Terrain полностью очищен."
+end
+
+local function toolCreateNpc(args)
+	local Players = game:GetService("Players")
+	local rig = string.upper(tostring(args.rigType or "R15"))
+	local enumRig = rig == "R6" and Enum.HumanoidRigType.R6 or Enum.HumanoidRigType.R15
+	local desc
+	if args.appearanceUserId then
+		local ok, d = pcall(function()
+			return Players:GetHumanoidDescriptionFromUserId(tonumber(args.appearanceUserId))
+		end)
+		if ok then desc = d end
+	end
+	if not desc then desc = Instance.new("HumanoidDescription") end
+	local model = Players:CreateHumanoidModelFromDescription(desc, enumRig)
+	model.Name = tostring(args.name or "NPC")
+	local parent = workspace
+	if args.parent and args.parent ~= "" then parent = resolvePath(args.parent) end
+	model.Parent = parent
+	local pos = args.position and vec3(args.position, 0) or Vector3.new(0, 5, 0)
+	model:PivotTo(CFrame.new(pos))
+	return "NPC создан: " .. model:GetFullName() .. " (" .. rig .. ")"
+end
+
+local function toolFocusCamera(args)
+	local cam = workspace.CurrentCamera
+	if not cam then return "Камера недоступна (нет CurrentCamera)." end
+	if args.path and args.path ~= "" then
+		local inst = resolvePath(args.path)
+		local cf, size
+		if inst:IsA("Model") then
+			cf, size = inst:GetBoundingBox()
+		elseif inst:IsA("BasePart") then
+			cf, size = inst.CFrame, inst.Size
+		else
+			local ok, p = pcall(function() return inst:GetPivot() end)
+			cf = ok and p or CFrame.new()
+			size = Vector3.new(8, 8, 8)
+		end
+		local dist = math.max(size.X, size.Y, size.Z) * 1.8 + 12
+		local target = cf.Position
+		local camPos = target + Vector3.new(dist * 0.7, dist * 0.6, dist * 0.7)
+		cam.CFrame = CFrame.lookAt(camPos, target)
+		return "Камера наведена на " .. inst:GetFullName()
+	end
+	local camPos = vec3(args.position, 0)
+	local look = args.lookAt and vec3(args.lookAt, 0) or (camPos + Vector3.new(0, 0, -10))
+	cam.CFrame = CFrame.lookAt(camPos, look)
+	return "Камера установлена."
+end
+
+-- Найти Humanoid: по path (модель/гуманоид), иначе в выделении, иначе первый в Workspace.
+local function resolveHumanoid(path)
+	local inst
+	if path and path ~= "" then
+		inst = resolvePath(path)
+	else
+		local sel = game:GetService("Selection"):Get()
+		if sel[1] then inst = sel[1] end
+	end
+	if inst then
+		if inst:IsA("Humanoid") then return inst, inst.Parent end
+		local h = inst:FindFirstChildOfClass("Humanoid")
+		if h then return h, inst end
+		if inst.Parent then
+			local h2 = inst.Parent:FindFirstChildOfClass("Humanoid")
+			if h2 then return h2, inst.Parent end
+		end
+	end
+	for _, m in ipairs(workspace:GetDescendants()) do
+		if m:IsA("Humanoid") then return m, m.Parent end
+	end
+	error("Не найден Humanoid. Создай NPC (create_npc) или укажи path к модели персонажа.")
+end
+
+local function toolApplyCharacterSkin(args)
+	local hum, char = resolveHumanoid(args.path)
+	local changed = {}
+
+	-- Цвета тела. R6: части Head/Torso/Left Arm…; R15: множество MeshPart.
+	-- Применяем по картам имён к нужным частям.
+	local function paintR6(map)
+		local aliases = {
+			Head = { "Head" }, Torso = { "Torso", "UpperTorso", "LowerTorso" },
+			LeftArm = { "Left Arm", "LeftUpperArm", "LeftLowerArm", "LeftHand" },
+			RightArm = { "Right Arm", "RightUpperArm", "RightLowerArm", "RightHand" },
+			LeftLeg = { "Left Leg", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot" },
+			RightLeg = { "Right Leg", "RightUpperLeg", "RightLowerLeg", "RightFoot" },
+		}
+		for key, hex in pairs(map) do
+			local names = aliases[key]
+			if names then
+				local col = colorFromHex(hex)
+				for _, nm in ipairs(names) do
+					local p = char:FindFirstChild(nm)
+					if p and p:IsA("BasePart") then p.Color = col end
+				end
+			end
+		end
+	end
+
+	if args.bodyColors then
+		paintR6(args.bodyColors)
+		table.insert(changed, "цвета частей")
+	end
+	if args.skinColor then
+		local col = colorFromHex(args.skinColor)
+		for _, p in ipairs(char:GetDescendants()) do
+			if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then p.Color = col end
+		end
+		table.insert(changed, "тон кожи")
+	end
+
+	-- Одежда.
+	local function ensureChild(className, name)
+		local c = char:FindFirstChildOfClass(className)
+		if not c then c = Instance.new(className); c.Name = name; c.Parent = char end
+		return c
+	end
+	if args.shirt then
+		ensureChild("Shirt", "Shirt").ShirtTemplate = "rbxassetid://" .. tostring(args.shirt)
+		table.insert(changed, "рубашка")
+	end
+	if args.pants then
+		ensureChild("Pants", "Pants").PantsTemplate = "rbxassetid://" .. tostring(args.pants)
+		table.insert(changed, "штаны")
+	end
+	if args.tshirt then
+		ensureChild("ShirtGraphic", "ShirtGraphic").Graphic = "rbxassetid://" .. tostring(args.tshirt)
+		table.insert(changed, "футболка")
+	end
+
+	-- Лицо.
+	if args.face then
+		local head = char:FindFirstChild("Head")
+		if head then
+			local face = head:FindFirstChild("face") or head:FindFirstChildOfClass("Decal")
+			if not face then face = Instance.new("Decal"); face.Name = "face"; face.Face = Enum.NormalId.Front; face.Parent = head end
+			face.Texture = "rbxassetid://" .. tostring(args.face)
+			table.insert(changed, "лицо")
+		end
+	end
+
+	-- Аксессуары.
+	if args.clearAccessories then
+		for _, a in ipairs(char:GetChildren()) do
+			if a:IsA("Accessory") then a:Destroy() end
+		end
+	end
+	if type(args.accessories) == "table" then
+		local added = 0
+		for _, id in ipairs(args.accessories) do
+			local ok, objs = pcall(function() return InsertService:LoadAsset(tonumber(id)) end)
+			if ok and objs then
+				local acc = objs:FindFirstChildOfClass("Accessory")
+				if acc then
+					local okAdd = pcall(function() hum:AddAccessory(acc) end)
+					if okAdd then added = added + 1 end
+				end
+				objs:Destroy()
+			end
+		end
+		if added > 0 then table.insert(changed, "аксессуары:" .. added) end
+	end
+
+	if #changed == 0 then
+		return "Ничего не задано. Передай цвета/одежду/аксессуары/лицо. Цель: " .. char:GetFullName()
+	end
+	return "Скин применён к " .. char:GetFullName() .. " — " .. table.concat(changed, ", ")
+end
+
+-- Инструменты, которые НЕ создают точку отмены (чтение/навигация/история/камера).
+local NO_WAYPOINT = {
+	get_console_output = true, get_studio_context = true, get_instance_properties = true,
+	get_script_source = true, find_instances = true, get_selection = true, get_children = true,
+	get_attributes = true, get_tags = true, count_instances = true, search_scripts = true,
+	select_instance = true, focus_camera = true, undo = true, redo = true,
+	start_stop_play = true, run_script_in_play_mode = true,
+}
+
 local TOOLS = {
+	undo = toolUndo,
+	redo = toolRedo,
+	fill_terrain = toolFillTerrain,
+	clear_terrain = toolClearTerrain,
+	create_npc = toolCreateNpc,
+	focus_camera = toolFocusCamera,
+	apply_character_skin = toolApplyCharacterSkin,
 	build_parts = toolBuildParts,
+	build_room = toolBuildRoom,
+	apply_surface = toolApplySurface,
 	add_proximity_prompt = toolAddProximityPrompt,
 	add_click_detector = toolAddClickDetector,
 	create_screen_gui = toolCreateScreenGui,
@@ -963,6 +1708,10 @@ local TOOLS = {
 	add_light = toolAddLight,
 	add_particle = toolAddParticle,
 	add_sound = toolAddSound,
+	set_sound_volume = toolSetSoundVolume,
+	tween_instance = toolTweenInstance,
+	create_cutscene = toolCreateCutscene,
+	play_animation = toolPlayAnimation,
 	set_lighting = toolSetLighting,
 	run_code = toolRunCode,
 	insert_model = toolInsertModel,
@@ -994,6 +1743,7 @@ local TOOLS = {
 	group_instances = toolGroupInstances,
 	start_stop_play = toolStartStopPlay,
 	run_script_in_play_mode = toolRunScriptInPlayMode,
+	search_scripts = toolSearchScripts,
 }
 
 local function executeCommand(cmd)
@@ -1003,6 +1753,10 @@ local function executeCommand(cmd)
 	end
 	local ok, result = pcall(handler, cmd.args or {})
 	if ok then
+		-- Точка отмены: каждое изменяющее действие ИИ становится одним шагом Ctrl+Z.
+		if not NO_WAYPOINT[cmd.tool] then
+			pcall(function() ChangeHistoryService:SetWaypoint("Rublox: " .. tostring(cmd.tool)) end)
+		end
 		return result, nil
 	else
 		return nil, tostring(result)

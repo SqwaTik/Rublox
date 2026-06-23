@@ -10,13 +10,27 @@
       .replace(/>/g, '&gt;');
   }
 
-  // Инлайн-разметка внутри строки (после экранирования).
+  // Инлайн-разметка внутри строки (после экранирования). Устойчиво к диалектам
+  // моделей: **bold**, __bold__, *italic*, _italic_, ***bi***, ___bi___,
+  // ~~strike~~, `code`, ссылки. Snake_case и числа не ломаются.
   function inline(s) {
-    return s
-      .replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`)
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
-      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    // Разбиваем на сегменты: инлайн-код `...` не форматируем, остальное — да.
+    // Так символы * _ ~ внутри кода остаются нетронутыми (без сентинелов).
+    const parts = s.split(/(`[^`]+`)/);
+    return parts.map((seg) => {
+      if (seg.length > 1 && seg[0] === '`' && seg[seg.length - 1] === '`') {
+        return `<code>${seg.slice(1, -1)}</code>`;
+      }
+      return seg
+        .replace(/\*\*\*([\s\S]+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+        .replace(/___([\s\S]+?)___/g, '<strong><em>$1</em></strong>')
+        .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/(^|[^\w])__([^\n]+?)__(?!\w)/g, '$1<strong>$2</strong>')
+        .replace(/~~([\s\S]+?)~~/g, '<del>$1</del>')
+        .replace(/(^|[^*\w])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>')
+        .replace(/(^|[^\w])_([^_\n]+?)_(?!\w)/g, '$1<em>$2</em>')
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    }).join('');
   }
 
   function render(src) {

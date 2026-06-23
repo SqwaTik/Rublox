@@ -56,7 +56,10 @@
         <!-- Кнопка «вниз» — появляется при прокрутке вверх -->
         <button class="scroll-btn hidden" id="scrollBtn" data-icon="arrowDown" title="Вниз"></button>
 
-        <!-- ── Индикатор работы (как в Claude Code) ── -->
+        <!-- ── Закреплённый план (как в Claude Code) ── -->
+        <div class="planbar hidden" id="planbar"></div>
+
+        <!-- ── Индикатор работы ── -->
         <div class="worklog hidden" id="worklog">
           <span class="wl-spin">✻</span>
           <span class="wl-text" id="worklogText">Thinking</span>
@@ -140,7 +143,6 @@
             <button class="tab" data-tab="plugins" data-t="plugins">Plugins</button>
             <button class="tab" data-tab="connection" data-t="connection">Connection</button>
             <button class="tab" data-tab="appearance" data-t="appearance">Appearance</button>
-            <button class="tab" data-tab="updates" data-t="updates">Updates</button>
             <button class="tab" data-tab="about" data-t="about">About</button>
           </div>
           <button class="icon-btn" id="closeSettings" data-icon="close"></button>
@@ -230,19 +232,13 @@
             </div>
           </div>
 
-          <!-- вкладка Updates (changelog по страницам) -->
-          <div class="tab-pane" data-pane="updates">
-            <div class="updates-list" id="updatesList"></div>
-            <div class="updates-pager" id="updatesPager"></div>
-          </div>
-
           <!-- вкладка About -->
           <div class="tab-pane" data-pane="about">
             <div class="about">
               <img src="img/logo.png" class="about-logo" alt="" />
               <h2>Rublox</h2>
               <p data-t="aboutText"></p>
-              <p class="about-ver">v0.2.4</p>
+              <p class="about-ver">v0.3.0</p>
             </div>
           </div>
         </div>

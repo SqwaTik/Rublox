@@ -15,7 +15,7 @@
 
 import { config } from '../config.js';
 import { getProvider, effectiveKind } from './registry.js';
-import { toolsForAnthropic, toolsForOpenAI } from './tools.js';
+import { toolsForAnthropic, toolsForOpenAI, TOOL_NAMES } from './tools.js';
 import { captureLimits } from '../usage.js';
 
 // Человекочитаемое объяснение типовых HTTP-ошибок провайдера. Сырой ответ часто
@@ -216,9 +216,10 @@ function anthropicHeaders(p) {
     'content-type': 'application/json',
     'x-api-key': p.apiKey,
     'anthropic-version': '2023-06-01',
-    // Многие прокси (напр. agentrouter.org) пускают только клиентов,
-    // похожих на настоящий Claude Code. Без User-Agent — 401.
-    'user-agent': 'claude-cli/1.0.0 (external, cli)',
+    // Многие прокси (напр. agentrouter.org) пускают только клиентов с
+    // CLI-подобным User-Agent. Без него — 401. Это технический заголовок
+    // совместимости, не виден пользователю.
+    'user-agent': 'rublox-cli/1.0.0 (external, cli)',
   };
   return { ...h, ...(p.headers || {}) };
 }
@@ -431,6 +432,68 @@ async function streamOpenAI(p, opts, onDelta) {
   return { text, toolCalls };
 }
 
+// Некоторые модели/прокси НЕ умеют структурный tool-use и «выплёвывают» вызов
+// прямо в текст: «(tool_use) name=update_plan id=… input={…}», или XML-блоками
+// <function_calls>…<invoke name="x"><parameter…>, или ```json {tool,args}```.
+// Если структурных toolCalls нет, пробуем вытащить вызовы из текста — иначе
+// чат «обрывается» сырой строкой (баг). Возвращает { text, toolCalls }.
+let __rawCallSeq = 0;
+const KNOWN_TOOL_NAMES = new Set(TOOL_NAMES);
+function extractInlineToolCalls(text, known) {
+  if (!text) return { text, toolCalls: [] };
+  const calls = [];
+  let cleaned = text;
+  const isTool = (n) => !known || known.has(n);
+  const mkId = (n) => `inline_${n}_${++__rawCallSeq}`;
+
+  // 1) Формат «(tool_use) name=NAME id=ID input={JSON}» (как в баг-репорте).
+  const reParen = /\(tool_use\)\s*name=([A-Za-z0-9_]+)(?:\s+id=\S+)?\s*input=(\{[\s\S]*?\})(?=\s*(?:\(tool_use\)|$))/g;
+  let m;
+  while ((m = reParen.exec(text))) {
+    const name = m[1];
+    if (!isTool(name)) continue;
+    let args = {};
+    try { args = JSON.parse(m[2]); } catch { /* частичный JSON — оставим пустым */ }
+    calls.push({ id: mkId(name), name, args });
+    cleaned = cleaned.replace(m[0], '');
+  }
+
+  // 2) Anthropic-подобные XML-блоки <invoke name="NAME"><parameter name="k">v</parameter>…
+  const reInvoke = /<invoke\s+name=["']([A-Za-z0-9_]+)["']\s*>([\s\S]*?)<\/invoke>/g;
+  while ((m = reInvoke.exec(text))) {
+    const name = m[1];
+    if (!isTool(name)) continue;
+    const args = {};
+    const reParam = /<parameter\s+name=["']([A-Za-z0-9_]+)["']\s*>([\s\S]*?)<\/parameter>/g;
+    let pm;
+    while ((pm = reParam.exec(m[2]))) {
+      let v = pm[2].trim();
+      try { v = JSON.parse(v); } catch { /* строка как есть */ }
+      args[pm[1]] = v;
+    }
+    calls.push({ id: mkId(name), name, args });
+    cleaned = cleaned.replace(m[0], '');
+  }
+
+  // Чистим обёртки функций-вызовов и лишние пустые строки.
+  cleaned = cleaned
+    .replace(/<\/?function_calls>/g, '')
+    .replace(/<\/?antml:[^>]*>/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return { text: cleaned, toolCalls: calls };
+}
+
+// Достраивает результат провайдера: если структурных toolCalls нет — пробует
+// вытащить их из текста (см. extractInlineToolCalls).
+function reconcileToolCalls(result, useTools, known) {
+  if (!useTools) return result;
+  if (result.toolCalls && result.toolCalls.length) return result;
+  const ex = extractInlineToolCalls(result.text || '', known);
+  if (ex.toolCalls.length) return { text: ex.text, toolCalls: ex.toolCalls };
+  return result;
+}
+
 // ── Публичные точки входа ──────────────────────────────
 function resolve(provider) {
   const p = getProvider(provider);
@@ -441,7 +504,8 @@ function resolve(provider) {
 export async function complete({ provider, system, messages, model, temperature, maxTokens, useTools, studioConnected, pcAllowed, thinking, signal }) {
   const p = resolve(provider);
   const opts = { system, messages: sanitizeMessages(messages), model, temperature, maxTokens: maxTokens || config.maxTokens, useTools, studioConnected, pcAllowed, thinking, signal };
-  return effectiveKind(p.kind) === 'anthropic' ? callAnthropic(p, opts) : callOpenAI(p, opts);
+  const res = effectiveKind(p.kind) === 'anthropic' ? await callAnthropic(p, opts) : await callOpenAI(p, opts);
+  return reconcileToolCalls(res, useTools, KNOWN_TOOL_NAMES);
 }
 
 export async function streamComplete(
@@ -450,7 +514,8 @@ export async function streamComplete(
 ) {
   const p = resolve(provider);
   const opts = { system, messages: sanitizeMessages(messages), model, temperature, maxTokens: maxTokens || config.maxTokens, useTools, studioConnected, pcAllowed, thinking, signal };
-  return effectiveKind(p.kind) === 'anthropic'
-    ? streamAnthropic(p, opts, onDelta)
-    : streamOpenAI(p, opts, onDelta);
+  const res = effectiveKind(p.kind) === 'anthropic'
+    ? await streamAnthropic(p, opts, onDelta)
+    : await streamOpenAI(p, opts, onDelta);
+  return reconcileToolCalls(res, useTools, KNOWN_TOOL_NAMES);
 }
