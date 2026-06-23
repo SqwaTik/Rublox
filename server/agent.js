@@ -501,6 +501,17 @@ export async function runAgent(session, onEvent = () => {}, opts = {}) {
   const pcAllowed = !studioConnected && getPcAgent();
   let outTokens = 0;
 
+  // Гарантируем рабочий провайдер: если выбранный (или дефолтный 'anthropic') не
+  // настроен — переключаемся на первого доступного, иначе понятная ошибка вместо
+  // «Неизвестный провайдер: anthropic».
+  if (!session.ensureProvider()) {
+    onEvent('error', {
+      text: 'Не добавлено ни одного провайдера. Откройте настройки (значок ключа), ' +
+        'добавьте провайдера и API-ключ, затем выберите модель.',
+    });
+    return 'Нет настроенных провайдеров.';
+  }
+
   for (let step = 0; step < SAFETY_CAP; step++) {
     if (signal?.aborted) return 'Остановлено пользователем.';
     onEvent('status', { text: 'Думаю', tokens: outTokens });

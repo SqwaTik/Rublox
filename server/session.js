@@ -2,7 +2,7 @@
 
 import { config } from './config.js';
 import { estimateMessagesTokens, summarizeMessages } from './context.js';
-import { getProvider } from './llm/registry.js';
+import { getProvider, listProviders } from './llm/registry.js';
 import { complete } from './llm/providers.js';
 import { saveSession, loadSessionData, deleteSessionFile, listSessionIds } from './store.js';
 import { activeSkillPrompts } from './skills.js';
@@ -297,6 +297,21 @@ export class Session {
     this.provider = provider;
     if (p.model) this.model = p.model;
     return true;
+  }
+
+  // Гарантирует рабочий провайдер. Если выбранный (или дефолтный 'anthropic')
+  // не добавлен в реестр — переключаемся на первого готового (с ключом), иначе на
+  // первого в списке. Возвращает id или null, если провайдеров нет вообще.
+  // Чинит ошибку «Неизвестный провайдер: anthropic», когда дефолт не настроен.
+  ensureProvider() {
+    if (getProvider(this.provider)) return this.provider;
+    const list = listProviders();
+    const pick = list.find((p) => p.ready) || list[0];
+    if (!pick) return null;
+    this.provider = pick.id;
+    if (pick.model) this.model = pick.model;
+    this.persist();
+    return this.provider;
   }
 
   setModel(model) {
