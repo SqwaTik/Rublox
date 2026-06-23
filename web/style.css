@@ -351,6 +351,9 @@ html, body {
 .pr-del { background: none; border: none; color: var(--muted); cursor: pointer; padding: 4px; border-radius: 7px; display: flex; }
 .pr-del svg { width: 16px; height: 16px; }
 .pr-del:hover { color: #ff6b6b; background: rgba(255,107,107,0.12); }
+.pr-off { background: none; border: none; color: var(--muted); cursor: pointer; padding: 4px; border-radius: 7px; display: flex; }
+.pr-off svg { width: 16px; height: 16px; }
+.pr-off:hover { color: var(--text); background: rgba(255,255,255,0.1); }
 label.full { display: block; margin: 8px 0; }
 label.full span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
 label.full textarea {

@@ -218,13 +218,23 @@ function renderProjectList() {
   if (!projects.length) { list.innerHTML = `<div class="form-hint">${window.t('noProject') || ''}</div>`; }
   for (const p of projects) {
     const row = document.createElement('div');
-    row.className = 'prj-row' + (activeProject && p.id === activeProject.id ? ' active' : '');
+    const isActive = activeProject && p.id === activeProject.id;
+    row.className = 'prj-row' + (isActive ? ' active' : '');
     row.innerHTML = `<div class="prj-main"><div class="prj-name">${escUsage(p.name)}</div>` +
       `<div class="prj-sub">${escUsage(p.folder || '—')}</div></div>` +
+      (isActive ? `<button class="pr-off" title="${window.t('projectDeselect') || 'Убрать активный проект'}">${window.ICON.close || '×'}</button>` : '') +
       `<button class="pr-del" title="${window.t('delete') || 'Удалить'}">${window.ICON.trash}</button>`;
     row.querySelector('.prj-main').onclick = async () => {
       const r = await fetch('/api/projects/active', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: p.id }) }).then((r) => r.json());
       projects = r.projects; activeProject = r.active; renderProjectBar(); renderProjectList(); openProjectEdit(p);
+    };
+    const offBtn = row.querySelector('.pr-off');
+    if (offBtn) offBtn.onclick = async (e) => {
+      e.stopPropagation();
+      // Снять активный проект, НЕ удаляя его (id: null).
+      const r = await fetch('/api/projects/active', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: null }) }).then((r) => r.json());
+      projects = r.projects; activeProject = r.active; renderProjectBar(); renderProjectList();
+      $('prj-edit').classList.add('hidden');
     };
     row.querySelector('.pr-del').onclick = async (e) => {
       e.stopPropagation();
