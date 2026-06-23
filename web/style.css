@@ -215,16 +215,26 @@ html, body {
 .src-chip img { width: 14px; height: 14px; border-radius: 3px; flex: none; }
 .src-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ── Карточка плана (todo с чекбоксами) ── */
+/* ── Карточка плана (todo-трекер как в Claude Code) ── */
 .plan-card { border-color: var(--border); background: rgba(255,255,255,0.025); }
+.plan-card .toolcall-head { align-items: center; }
+.plan-progress { margin-left: auto; font-size: 11px; color: var(--muted); font-weight: 600;
+  background: rgba(255,255,255,0.06); padding: 1px 7px; border-radius: 9px; }
+.plan-rows { display: flex; flex-direction: column; gap: 1px; }
 .plan-row { display: flex; align-items: flex-start; gap: 9px; padding: 3px 0; font-size: 13.5px; line-height: 1.45; }
-.plan-box { width: 16px; flex: none; text-align: center; font-weight: 700; }
+.plan-box { width: 16px; height: 16px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 700; border-radius: 50%; }
+.plan-box svg { width: 13px; height: 13px; }
+.plan-row.pl-todo .plan-box { border: 1.5px solid var(--muted); opacity: .6; }
 .plan-row.pl-done { color: var(--muted); }
-.plan-row.pl-done span:last-child { text-decoration: line-through; }
+.plan-row.pl-done .plan-txt { text-decoration: line-through; opacity: .75; }
 .plan-row.pl-done .plan-box { color: var(--ok); }
-.plan-row.pl-active { color: var(--text); }
+.plan-row.pl-active { color: var(--text); font-weight: 600; }
 .plan-row.pl-active .plan-box { color: var(--accent-2); }
-.plan-row.pl-todo { color: var(--muted); }
+.plan-spin { animation: plan-spin 1.1s linear infinite; }
+@keyframes plan-spin { to { transform: rotate(360deg); } }
+.plan-card.plan-complete { opacity: .8; }
+.plan-card.plan-complete .plan-progress { background: var(--ok); color: #fff; }
 
 /* В браузере (не Electron) прячем кнопки управления окном. */
 .in-browser .tb-controls { display: none; }
@@ -324,12 +334,65 @@ label.full textarea {
   background: var(--panel-2); color: var(--text); font-size: 13px; font-family: inherit; resize: vertical;
 }
 
-/* ── Генплан постройки (вид сверху, SVG-чертёж) ── */
+/* ── Генплан постройки (вид сверху, SVG-чертёж + легенда) ── */
 .blueprint-meta { font-size: 11.5px; color: var(--muted); margin: 2px 0 8px; }
+.bp-wrap { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.bp-canvas { flex: 1 1 240px; min-width: 200px; }
 .blueprint-svg {
-  width: 100%; max-width: 340px; border-radius: 10px; display: block;
+  width: 100%; max-width: 360px; border-radius: 10px; display: block;
   border: 1px solid var(--border-2); background: rgba(255,255,255,0.015);
 }
+.bp-field { fill: rgba(255,255,255,0.02); stroke: var(--border-2); stroke-width: 1; }
+.bp-grid { stroke: var(--border-2); stroke-width: 0.5; opacity: .4; }
+.bp-num { fill: #fff; font-size: 11px; font-weight: 700; font-family: inherit; }
+.bp-legend { flex: 1 1 150px; min-width: 140px; display: flex; flex-direction: column; gap: 5px; padding-top: 2px; }
+.bp-leg-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-family: var(--font, inherit); color: var(--text); }
+.bp-leg-num { width: 18px; height: 18px; flex: none; border-radius: 50%; color: #fff; font-weight: 700;
+  font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
+.bp-leg-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bp-leg-dim { color: var(--muted); font-size: 11px; font-family: ui-monospace, monospace; flex: none; }
+
+/* ── Карточка вопроса (ask_user, кнопки выбора) ── */
+.ask-card { border-color: var(--accent-2); background: rgba(255,255,255,0.03); }
+.ask-q { color: var(--text); font-family: var(--font, inherit); font-size: 14px; margin: 2px 0 10px; line-height: 1.4; }
+.ask-opts { display: flex; flex-direction: column; gap: 7px; }
+.ask-btn { text-align: left; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--text); cursor: pointer; font-family: var(--font, inherit);
+  display: flex; flex-direction: column; gap: 2px; transition: border-color .12s, background .12s, transform .08s; }
+.ask-btn:hover:not(:disabled) { border-color: var(--accent-2); background: rgba(255,255,255,0.06); }
+.ask-btn:active:not(:disabled) { transform: scale(0.99); }
+.ask-btn-label { font-size: 13.5px; font-weight: 600; }
+.ask-btn-desc { font-size: 11.5px; color: var(--muted); }
+.ask-btn:disabled { opacity: .5; cursor: default; }
+.ask-btn.chosen { border-color: var(--accent); background: rgba(255,255,255,0.08); opacity: 1; }
+.ask-btn.chosen .ask-btn-label::after { content: " ✓"; color: var(--ok); }
+.ask-other { display: flex; gap: 6px; margin-top: 9px; }
+.ask-input { flex: 1; padding: 8px 11px; border-radius: 9px; border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--text); font-family: var(--font, inherit); font-size: 13px; }
+.ask-send { flex: none; width: 38px; border-radius: 9px; border: 1px solid var(--border); cursor: pointer;
+  background: var(--panel-2); color: var(--accent-2); display: inline-flex; align-items: center; justify-content: center; }
+.ask-send svg { width: 16px; height: 16px; }
+.ask-card.answered .ask-opts { opacity: .85; }
+
+/* ── Карточки ассетов (search_assets) ── */
+.tc-count { margin-left: auto; font-size: 11px; color: var(--muted); background: rgba(255,255,255,0.06);
+  padding: 1px 7px; border-radius: 9px; }
+.asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 9px; margin-top: 4px; }
+.asset-card { position: relative; border: 1px solid var(--border-2); border-radius: 11px; overflow: hidden;
+  background: var(--panel-2); display: flex; flex-direction: column; }
+.asset-thumb { width: 100%; aspect-ratio: 1; object-fit: cover; background: rgba(0,0,0,0.3); display: block; }
+.asset-thumb.noimg { visibility: hidden; }
+.asset-info { padding: 7px 9px; display: flex; flex-direction: column; gap: 1px; }
+.asset-name { font-size: 12px; font-weight: 600; color: var(--text); font-family: var(--font, inherit);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-meta { font-size: 10.5px; color: var(--accent-2); }
+.asset-id { font-size: 10px; color: var(--muted); font-family: ui-monospace, monospace; }
+.asset-insert { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 8px;
+  border: none; cursor: pointer; background: rgba(0,0,0,0.55); color: #fff; display: inline-flex;
+  align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+.asset-insert svg { width: 15px; height: 15px; }
+.asset-insert:hover { background: var(--accent); }
+.asset-insert.inserted { background: var(--ok); }
 
 .msg.user { align-self: flex-end; }
 .msg.assistant, .msg.tool { align-self: flex-start; }

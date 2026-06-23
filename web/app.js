@@ -101,6 +101,7 @@ function onMessage(m) {
       break;
     case 'tool': if (forActive) renderToolCall(m.name, m.args); break;
     case 'tool_result': if (forActive) renderToolResult(m.name, m.ok, m.result); break;
+    case 'ask_answered': if (forActive) markAskAnswered(m.answer); break;
     case 'done':
       if (m.chatId) busyChats.delete(m.chatId);
       if (forActive) {
@@ -251,6 +252,19 @@ if ($('prj-save')) $('prj-save').onclick = async () => {
 
 // ── Обновления (changelog по страницам) ───────────────
 const CHANGELOG = [
+  { v: 'v0.2.5', date: '', items: [
+    'Кнопки выбора (ask_user) — выбор стека/стиля как в Claude (C++/Tailwind/свой)',
+    'Скриптинг-инструменты: write_script (создать) и edit_script (точечная правка)',
+    'multi_edit — пакетные правки файла за один вызов (как MultiEdit в Claude Code)',
+    'Авто-установка Luau: песочница сама скачивает рантайм и кладёт в PATH',
+    'Аудит генплана: сервер ловит узкие коридоры, мелкие комнаты, пересечения',
+    'review_blueprint — рендер генплана в картинку для vision-проверки компоновки',
+    'Правила масштаба построек — больше никаких крошечных backrooms',
+    'Генпланы переделаны: чистая схема с цифрами + легенда сбоку',
+    'План задач — живой трекер: держится снизу, зачёркивает, крутит текущий',
+    'Ассеты из тулбокса — карточки с превью и кнопкой «Вставить»',
+    'Чинён 400 (tool_use без tool_result) и понятные ошибки 403/429/5xx',
+  ] },
   { v: 'v0.2.4', date: '', items: [
     '17 новых ПК-инструментов: фон/stdin процессы, скриншот, буфер обмена',
     'Уведомления, скачивание файлов, реестр Windows, git-обзор, запуск GUI',
@@ -382,7 +396,9 @@ function toolIcon(name) {
   if (name === 'luau_reference') return window.ICON.brain;
   if (name === 'search_assets' || name === 'insert_model') return window.ICON.download;
   if (name === 'update_plan') return window.ICON.list;
-  if (name === 'plan_build') return window.ICON.layout;
+  if (name === 'ask_user') return window.ICON.help || window.ICON.cpu;
+  if (name === 'write_script' || name === 'edit_script') return window.ICON.edit;
+  if (name === 'plan_build' || name === 'review_blueprint') return window.ICON.layout;
   if (name === 'build_parts' || name === 'group_instances') return window.ICON.box;
   if (name === 'create_screen_gui' || name === 'create_ui_element') return window.ICON.layout;
   if (name === 'weld' || name === 'create_constraint' || name === 'add_attachment') return window.ICON.link;
@@ -393,7 +409,7 @@ function toolIcon(name) {
   if (name === 'add_particle') return window.ICON.sparkles;
   if (name === 'add_decal') return window.ICON.image;
   if (name === 'create_script' || name === 'set_script_source' || name === 'get_script_source') return window.ICON.edit;
-  if (/^(read_file|write_file|edit_file|append_file|read_lines|list_dir|make_dir|move_path|copy_path|delete_path|stat_path|path_exists|glob_files|grep_files|tree)$/.test(name)) return window.ICON.edit;
+  if (/^(read_file|write_file|edit_file|multi_edit|append_file|read_lines|list_dir|make_dir|move_path|copy_path|delete_path|stat_path|path_exists|glob_files|grep_files|tree)$/.test(name)) return window.ICON.edit;
   return window.ICON.cpu;
 }
 
@@ -401,19 +417,32 @@ function toolIcon(name) {
 let planEl = null;
 function renderPlan(steps) {
   steps = Array.isArray(steps) ? steps : [];
+  const esc = (s) => String(s || '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+  const total = steps.length;
+  const done = steps.filter((s) => (s.status || 'pending') === 'done').length;
   const rows = steps.map((s) => {
     const st = s.status || 'pending';
-    const box = st === 'done' ? '✓' : st === 'in_progress' ? '◼' : '◻';
     const cls = st === 'done' ? 'pl-done' : st === 'in_progress' ? 'pl-active' : 'pl-todo';
-    const txt = String(s.text || '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
-    return `<div class="plan-row ${cls}"><span class="plan-box">${box}</span><span>${txt}</span></div>`;
+    const mark = st === 'done'
+      ? `<span class="plan-box">${window.ICON.check || '✓'}</span>`
+      : st === 'in_progress'
+        ? `<span class="plan-box plan-spin">${window.ICON.spinner || '◐'}</span>`
+        : `<span class="plan-box"></span>`;
+    return `<div class="plan-row ${cls}">${mark}<span class="plan-txt">${esc(s.text)}</span></div>`;
   }).join('');
-  const html = `<div class="toolcall-head">${window.ICON.list || ''}<b>${window.t('planTitle') || 'План'}</b></div>${rows}`;
+  const allDone = total > 0 && done === total;
+  const head = `<div class="toolcall-head">${window.ICON.list || ''}<b>${window.t('planTitle') || 'План'}</b>` +
+    `<span class="plan-progress">${done}/${total}</span></div>`;
+  const html = head + `<div class="plan-rows">${rows}</div>`;
   if (planEl && planEl.isConnected) {
     planEl.innerHTML = html;
+    // Держим план ВНИЗУ: перемещаем его контейнер в конец ленты при обновлении
+    // (как живой статус-трекер в Claude Code), пока он не завершён.
+    const host = planEl.closest('.msg');
+    if (host && !allDone && host !== chat.lastElementChild) chat.appendChild(host);
   } else {
     const wrap = document.createElement('div');
-    wrap.className = 'msg tool';
+    wrap.className = 'msg tool plan-msg';
     const bubble = document.createElement('div');
     bubble.className = 'bubble rich plan-card';
     bubble.innerHTML = html;
@@ -422,41 +451,128 @@ function renderPlan(steps) {
     planEl = bubble;
     trimChat();
   }
+  if (planEl) planEl.classList.toggle('plan-complete', allDone);
+  // Завершённый план «отпускаем» — следующий update_plan создаст новый снизу.
+  if (allDone) planEl = null;
   scrollDown();
 }
 
-// Генплан постройки — схема вида сверху (SVG), как чертёж.
+// Генплан постройки — чистая схема вида сверху (SVG) + нумерованная легенда сбоку.
+// На самой схеме рисуем только аккуратные прямоугольники с ЦИФРАМИ (1,2,3…), а
+// названия зон выносим в список рядом — так подписи не наезжают и не кривятся.
+const BP_PALETTE = ['#4f8cff', '#10b981', '#f97316', '#a855f7', '#ec4899', '#0ea5e9', '#eab308', '#ef4444', '#14b8a6', '#8b5cf6'];
 function renderBlueprint(args) {
   const items = Array.isArray(args.items) ? args.items : [];
   if (!items.length) return;
-  // Габариты участка: из args или по охвату зон.
   let W = Number(args.width) || 0, D = Number(args.depth) || 0;
   for (const it of items) {
     W = Math.max(W, (Number(it.x) || 0) + (Number(it.w) || 0));
     D = Math.max(D, (Number(it.z) || 0) + (Number(it.d) || 0));
   }
   W = W || 64; D = D || 64;
-  const VB = 320, pad = 8; const sc = (VB - pad * 2) / Math.max(W, D);
   const esc = (s) => String(s == null ? '' : s).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
-  const rects = items.map((it) => {
+  // Квадратное поле с равным масштабом по осям + сетка для ощущения чертежа.
+  const VB = 360, pad = 14;
+  const sc = (VB - pad * 2) / Math.max(W, D);
+  const colorOf = (it, i) =>
+    /^#?[0-9a-fA-F]{6}$/.test(it.color || '') ? (it.color[0] === '#' ? it.color : '#' + it.color) : BP_PALETTE[i % BP_PALETTE.length];
+  // Сетка каждые 16 studs.
+  let grid = '';
+  const step = 16 * sc;
+  for (let g = pad; g <= VB - pad + 0.5; g += step) {
+    grid += `<line x1="${g.toFixed(1)}" y1="${pad}" x2="${g.toFixed(1)}" y2="${VB - pad}" class="bp-grid"/>`;
+    grid += `<line x1="${pad}" y1="${g.toFixed(1)}" x2="${VB - pad}" y2="${g.toFixed(1)}" class="bp-grid"/>`;
+  }
+  const rects = items.map((it, i) => {
     const x = pad + (Number(it.x) || 0) * sc, y = pad + (Number(it.z) || 0) * sc;
-    const w = (Number(it.w) || 1) * sc, h = (Number(it.d) || 1) * sc;
-    const col = /^#?[0-9a-fA-F]{6}$/.test(it.color || '') ? (it.color[0] === '#' ? it.color : '#' + it.color) : 'var(--accent)';
+    const w = Math.max(2, (Number(it.w) || 1) * sc), h = Math.max(2, (Number(it.d) || 1) * sc);
+    const col = colorOf(it, i);
     const tx = x + w / 2, ty = y + h / 2;
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${col}" fill-opacity="0.28" stroke="${col}" stroke-width="1.5"/>` +
-      (it.label ? `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" fill="var(--text)" font-size="9" text-anchor="middle" dominant-baseline="middle">${esc(it.label)}</text>` : '');
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${col}" fill-opacity="0.22" stroke="${col}" stroke-width="1.5"/>` +
+      `<circle cx="${tx.toFixed(1)}" cy="${ty.toFixed(1)}" r="9" fill="${col}"/>` +
+      `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" class="bp-num" text-anchor="middle" dominant-baseline="central">${i + 1}</text>`;
   }).join('');
-  const svg = `<svg viewBox="0 0 ${VB} ${VB}" class="blueprint-svg"><rect x="0" y="0" width="${VB}" height="${VB}" fill="rgba(255,255,255,0.02)"/>${rects}</svg>`;
+  const svg = `<svg viewBox="0 0 ${VB} ${VB}" class="blueprint-svg">` +
+    `<rect x="${pad}" y="${pad}" width="${VB - pad * 2}" height="${VB - pad * 2}" class="bp-field"/>${grid}${rects}</svg>`;
+  // Легенда: номер • цвет • название • размеры.
+  const legend = items.map((it, i) => {
+    const col = colorOf(it, i);
+    const dims = `${Number(it.w) || 1}×${Number(it.d) || 1}`;
+    return `<div class="bp-leg-row"><span class="bp-leg-num" style="background:${col}">${i + 1}</span>` +
+      `<span class="bp-leg-name">${esc(it.label || 'зона')}</span>` +
+      `<span class="bp-leg-dim">${dims}</span></div>`;
+  }).join('');
   const wrap = document.createElement('div');
   wrap.className = 'msg tool';
   const bubble = document.createElement('div');
   bubble.className = 'bubble rich';
-  bubble.innerHTML = `<div class="toolcall-head">${window.ICON.list || ''}<b>${window.t('blueprint') || 'Генплan'}: ${esc(args.name || '')}</b></div>` +
-    `<div class="blueprint-meta">${W}×${D} studs · ${items.length} зон</div>${svg}`;
+  bubble.innerHTML =
+    `<div class="toolcall-head">${window.ICON.layout || window.ICON.list || ''}<b>${window.t('blueprint') || 'Генплан'}: ${esc(args.name || '')}</b></div>` +
+    `<div class="blueprint-meta">${W}×${D} studs · ${items.length} ${window.t('zones') || 'зон'}</div>` +
+    `<div class="bp-wrap"><div class="bp-canvas">${svg}</div><div class="bp-legend">${legend}</div></div>`;
   wrap.appendChild(bubble);
   chat.appendChild(wrap);
   trimChat();
   scrollDown();
+}
+
+// Вопрос с кнопками выбора (ask_user). Пока активен — блокирует ввод-как-команду;
+// клик по варианту или Enter в поле «свой вариант» отправляет ответ агенту.
+let askEl = null;
+function renderAskUser(args) {
+  clearWelcome();
+  const esc = (s) => String(s == null ? '' : s).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+  const opts = Array.isArray(args.options) ? args.options.slice(0, 4) : [];
+  const allowOther = args.allowOther !== false;
+  const wrap = document.createElement('div');
+  wrap.className = 'msg tool';
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble rich ask-card';
+  const btns = opts.map((o, i) =>
+    `<button class="ask-btn" data-ans="${esc(o.label)}">` +
+    `<span class="ask-btn-label">${esc(o.label)}</span>` +
+    (o.description ? `<span class="ask-btn-desc">${esc(o.description)}</span>` : '') +
+    `</button>`).join('');
+  const other = allowOther
+    ? `<div class="ask-other"><input class="ask-input" type="text" placeholder="${window.t('askOther') || 'Свой вариант…'}"/>` +
+      `<button class="ask-send">${window.ICON.send || 'OK'}</button></div>`
+    : '';
+  bubble.innerHTML =
+    `<div class="toolcall-head">${window.ICON.help || window.ICON.cpu || ''}<b>${window.t('askTitle') || 'Нужен выбор'}</b></div>` +
+    `<div class="ask-q">${esc(args.question || '')}</div>` +
+    `<div class="ask-opts">${btns}</div>${other}`;
+  wrap.appendChild(bubble);
+  chat.appendChild(wrap);
+  askEl = bubble;
+  // Привязка кликов.
+  bubble.querySelectorAll('.ask-btn').forEach((b) => {
+    b.onclick = () => sendAskAnswer(b.dataset.ans);
+  });
+  const inp = bubble.querySelector('.ask-input');
+  const snd = bubble.querySelector('.ask-send');
+  if (inp) {
+    inp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); if (inp.value.trim()) sendAskAnswer(inp.value.trim()); } };
+  }
+  if (snd) snd.onclick = () => { if (inp && inp.value.trim()) sendAskAnswer(inp.value.trim()); };
+  trimChat();
+  scrollDown(true);
+}
+function sendAskAnswer(answer) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'ask_answer', chatId: activeChat, answer }));
+  markAskAnswered(answer);
+}
+// Фиксируем выбор в карточке (блокируем кнопки, подсвечиваем выбранную).
+function markAskAnswered(answer) {
+  if (!askEl || !askEl.isConnected) { askEl = null; return; }
+  askEl.classList.add('answered');
+  askEl.querySelectorAll('.ask-btn').forEach((b) => {
+    b.disabled = true;
+    if (b.dataset.ans === answer) b.classList.add('chosen');
+  });
+  const other = askEl.querySelector('.ask-other');
+  if (other) other.remove();
+  askEl = null;
 }
 
 // Красивая карточка вызова инструмента: показываем РЕАЛЬНЫЙ код/действие.
@@ -465,10 +581,13 @@ function renderToolCall(name, args) {
   clearWelcome();
   if (name === 'update_plan') { renderPlan(args.steps); return; }
   if (name === 'plan_build') { renderBlueprint(args); return; }
+  if (name === 'ask_user') { renderAskUser(args); return; }
   let md = '';
   if ((name === 'run_code' || name === 'run_script_in_play_mode') && args.code) md = '```lua\n' + args.code + '\n```';
   else if (name === 'set_script_source' && args.source) md = '```lua\n' + args.source + '\n```';
   else if (name === 'create_script' && args.source) md = '`' + (args.scriptType || 'Script') + '` → ' + (args.parent || '') + '\n```lua\n' + args.source + '\n```';
+  else if (name === 'write_script' && args.source) md = '`' + (args.scriptType || 'Script') + '`' + (args.name ? ' `' + args.name + '`' : '') + (args.parent ? ' → ' + args.parent : '') + '\n```lua\n' + args.source + '\n```';
+  else if (name === 'edit_script') md = '`' + (args.path || '') + '`\n```diff\n- ' + String(args.oldText || '').split('\n').join('\n- ') + '\n+ ' + String(args.newText || '').split('\n').join('\n+ ') + '\n```';
   else if (name === 'move_instance') md = '`' + (args.path || '') + '` → ' + (args.parent || '');
   else if (name === 'call_method') md = '`' + (args.path || '') + ':' + (args.method || '') + '()`';
   else if (name === 'add_tag' || name === 'remove_tag') md = '`' + (args.tag || '') + '` ← ' + (args.path || '');
@@ -495,6 +614,7 @@ function renderToolCall(name, args) {
   else if (name === 'run_command') md = '```bash\n' + (args.command || '') + '\n```';
   else if (name === 'write_file' || name === 'read_file' || name === 'list_dir' || name === 'make_dir') md = '`' + (args.path || '') + '`';
   else if (name === 'edit_file') md = '`' + (args.path || '') + '`\n```diff\n- ' + String(args.oldText || '').split('\n').join('\n- ') + '\n+ ' + String(args.newText || '').split('\n').join('\n+ ') + '\n```';
+  else if (name === 'multi_edit') md = '`' + (args.path || '') + '` — правок: ' + ((args.edits || []).length) + '\n```diff\n' + (args.edits || []).map((e) => '- ' + String(e.oldText || '').split('\n').join('\n- ') + '\n+ ' + String(e.newText || '').split('\n').join('\n+ ')).join('\n') + '\n```';
   else { const s = JSON.stringify(args); md = s && s !== '{}' ? '`' + (s.length > 120 ? s.slice(0, 120) + '…' : s) + '`' : ''; }
 
   const wrap = document.createElement('div');
@@ -512,6 +632,12 @@ function renderToolCall(name, args) {
 function renderToolResult(name, ok, result) {
   // Веб-поиск: показываем источники карточками-чипами (как у крупных ИИ).
   if (ok && name === 'web_search') { renderSources(String(result || '')); return; }
+  // Поиск ассетов: красивые карточки вместо плоского текста.
+  if (ok && name === 'search_assets' && /assetId\s+\d+/.test(String(result || ''))) {
+    renderAssets(String(result)); return;
+  }
+  // ask_user: выбор уже отражён в карточке вопроса — не дублируем строкой.
+  if (name === 'ask_user') return;
   const s = String(result == null ? '' : result);
   // Тривиальный успех не засоряет ленту — детали уже видны в ответе ассистента.
   if (ok && (result == null || /^(ok|Изменено|Создан|Выделен|Записано|Построено|Перемещено|Сварено)/.test(s) || s.length < 4)) {
@@ -529,6 +655,42 @@ function renderToolResult(name, ok, result) {
   wrap.appendChild(bubble);
   chat.appendChild(wrap);
   bindCopy(bubble);
+  trimChat();
+  scrollDown();
+}
+
+// Ассеты тулбокса → аккуратные карточки с превью, id, именем и автором.
+// Клик по «Вставить» отправляет команду /insert <id>.
+function renderAssets(text) {
+  const esc = (s) => String(s == null ? '' : s).replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+  const items = [];
+  for (const line of text.split('\n')) {
+    const m = line.match(/assetId\s+(\d+)\s*(?:[—-]\s*(.+?))?\s*(?:\(автор\s+(.+?)\))?\s*$/);
+    if (m) items.push({ id: m[1], name: (m[2] || '').trim(), author: (m[3] || '').trim() });
+  }
+  if (!items.length) { addMsg('tool', text); return; }
+  const cards = items.map((it) => {
+    const thumb = `https://www.roblox.com/asset-thumbnail/image?assetId=${it.id}&width=150&height=150&format=png`;
+    return `<div class="asset-card" data-id="${esc(it.id)}">` +
+      `<img class="asset-thumb" src="${thumb}" loading="lazy" onerror="this.classList.add('noimg')"/>` +
+      `<div class="asset-info"><div class="asset-name" title="${esc(it.name)}">${esc(it.name || 'Без названия')}</div>` +
+      `<div class="asset-meta">${it.author ? '@' + esc(it.author) : ''}</div>` +
+      `<div class="asset-id">id ${esc(it.id)}</div></div>` +
+      `<button class="asset-insert" data-id="${esc(it.id)}" title="${window.t('insertAsset') || 'Вставить'}">${window.ICON.download || '+'}</button>` +
+      `</div>`;
+  }).join('');
+  clearWelcome();
+  const wrap = document.createElement('div');
+  wrap.className = 'msg tool';
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble rich';
+  bubble.innerHTML = `<div class="toolcall-head">${window.ICON.download || ''}<b>${window.t('assetsTitle') || 'Найденные ассеты'}</b> <span class="tc-count">${items.length}</span></div>` +
+    `<div class="asset-grid">${cards}</div>`;
+  wrap.appendChild(bubble);
+  chat.appendChild(wrap);
+  bubble.querySelectorAll('.asset-insert').forEach((b) => {
+    b.onclick = () => { send('/insert ' + b.dataset.id); b.classList.add('inserted'); b.innerHTML = window.ICON.check || '✓'; };
+  });
   trimChat();
   scrollDown();
 }
