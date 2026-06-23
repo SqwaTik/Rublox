@@ -105,11 +105,13 @@ async function checkForUpdates({ silent = true, win = null } = {}) {
       return;
     }
     try {
-      // Тихая установка NSIS (/S) с автозапуском после; затем выходим.
-      const child = spawn(dest, ['/S'], { detached: true, stdio: 'ignore' });
+      // Тихая установка NSIS (/S) + автозапуск приложения после неё (--force-run —
+      // флаг установщика electron-builder, тот же, что использует electron-updater).
+      const child = spawn(dest, ['/S', '--force-run'], { detached: true, stdio: 'ignore' });
       child.unref();
     } catch {
-      // если /S не сработал — просто откроем установщик
+      // если тихая установка не сработала — откроем установщик обычным окном
+      // (там на финише есть галка «Запустить Rublox»).
       shell.openPath(dest);
     }
     app.exit(0);

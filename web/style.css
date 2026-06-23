@@ -239,22 +239,25 @@ html, body {
 /* ── Закреплённый план снизу (как в Claude Code) ── */
 .planbar {
   flex: none; margin: 0 4px 2px; border: 1px solid var(--border);
-  border-radius: 12px; background: var(--panel); overflow: hidden;
-  display: flex; flex-direction: column; max-height: 40vh;
-  box-shadow: 0 -2px 14px rgba(0,0,0,0.22); animation: rise 0.18s ease;
+  border-radius: 10px; background: var(--panel); overflow: hidden;
+  display: flex; flex-direction: column; max-height: 190px;
+  box-shadow: 0 -2px 12px rgba(0,0,0,0.2); animation: rise 0.18s ease;
 }
 .planbar.hidden { display: none; }
 .planbar-head {
-  display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;
-  padding: 9px 12px; font-size: 13px; flex: none;
+  display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none;
+  padding: 6px 10px; font-size: 12px; flex: none;
   border-bottom: 1px solid var(--border); background: rgba(255,255,255,0.03);
 }
-.planbar-head b { font-size: 13px; }
-.planbar-head .planbar-ic svg { width: 15px; height: 15px; vertical-align: -2px; color: var(--muted); }
+.planbar-head b { font-size: 12px; font-weight: 600; }
+.planbar-head .planbar-ic svg { width: 13px; height: 13px; vertical-align: -2px; color: var(--muted); }
 .plan-caret { display: inline-flex; transition: transform .18s ease; color: var(--muted); }
-.plan-caret svg { width: 16px; height: 16px; }
+.plan-caret svg { width: 14px; height: 14px; }
 .planbar.plan-collapsed .plan-caret { transform: rotate(-90deg); }
-.planbar .plan-rows { overflow-y: auto; padding: 8px 12px 10px; }
+.planbar .plan-rows { overflow-y: auto; padding: 5px 10px 7px; gap: 0; }
+.planbar .plan-row { padding: 2px 0; font-size: 12.5px; line-height: 1.3; gap: 7px; }
+.planbar .plan-box { width: 14px; height: 14px; }
+.planbar .plan-box svg { width: 11px; height: 11px; }
 .planbar.plan-collapsed .plan-rows { display: none; }
 .planbar.plan-complete .planbar-head { background: rgba(63,185,80,0.10); }
 .planbar.plan-complete .plan-progress { background: var(--ok); color: #fff; }

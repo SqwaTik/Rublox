@@ -41,25 +41,6 @@ function explainHttpError(status, rawMsg) {
   return msg;
 }
 
-// ── Низкоуровневый HTTP ────────────────────────────────
-async function httpJson(url, options, providerId) {
-  const res = await fetch(url, options);
-  // Перехватываем лимиты из заголовков ответа (даже при ошибке — полезно).
-  if (providerId) captureLimits(providerId, res.headers);
-  const text = await res.text();
-  let data;
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    data = { raw: text };
-  }
-  if (!res.ok) {
-    const msg = data?.error?.message || data?.raw || res.statusText;
-    throw new Error(explainHttpError(res.status, msg));
-  }
-  return data;
-}
-
 // Построчный парсер SSE: вызывает onEvent(dataString) для каждого "data: ...".
 async function readSSE(res, onEvent) {
   if (!res.ok) {
@@ -211,26 +192,74 @@ function applyAnthropicCaching(body) {
   }
 }
 
-function anthropicHeaders(p) {
+// ── Единый устойчивый слой запросов ────────────────────
+// Версионно-aware URL эндпоинта: если baseUrl уже содержит /vN — не дублируем
+// версию (иначе /v1/v1/...), а если версии нет — добавляем нужную. Чинит частые
+// 404/401 на кастомных baseUrl.
+function endpointUrl(p, kind) {
+  const b = String(p.baseUrl || '').replace(/\/+$/, '');
+  const hasVer = /\/v\d+$/.test(b);
+  if (kind === 'anthropic') return hasVer ? `${b}/messages` : `${b}/v1/messages`;
+  return hasVer ? `${b}/chat/completions` : `${b}/v1/chat/completions`;
+}
+
+// Базовые заголовки без авторизации. anthropic-version нужен для Anthropic-формата
+// (безвреден для остальных). User-Agent — без него часть шлюзов отдаёт 401/403.
+function protoHeaders(kind) {
   const h = {
     'content-type': 'application/json',
-    'x-api-key': p.apiKey,
-    'anthropic-version': '2023-06-01',
-    // Многие прокси (напр. agentrouter.org) пускают только клиентов с
-    // CLI-подобным User-Agent. Без него — 401. Это технический заголовок
-    // совместимости, не виден пользователю.
     'user-agent': 'rublox-cli/1.0.0 (external, cli)',
+    accept: 'application/json',
   };
-  return { ...h, ...(p.headers || {}) };
+  if (kind === 'anthropic') h['anthropic-version'] = '2023-06-01';
+  return h;
+}
+
+// Схемы авторизации по порядку предпочтения протокола. Если пользователь сам
+// задал auth в headers — используем только его (один пустой вариант).
+function authVariants(p, kind) {
+  const userAuth = Object.keys(p.headers || {}).some((k) => /^(authorization|x-api-key)$/i.test(k));
+  if (userAuth) return [{}];
+  const bearer = { authorization: `Bearer ${p.apiKey || 'not-needed'}` };
+  const xkey = { 'x-api-key': p.apiKey || '' };
+  return kind === 'anthropic' ? [xkey, bearer] : [bearer, xkey];
+}
+
+// Запрос к LLM с автоперебором схемы авторизации при 401/403 (разные шлюзы хотят
+// Bearer ЛИБО x-api-key). Прочие коды не перебираем — это не проблема ключа.
+// Возвращает Response; разбор успеха/ошибки — на стороне вызывающего.
+async function llmFetch(p, kind, payload, signal) {
+  const url = endpointUrl(p, kind);
+  const base = protoHeaders(kind);
+  const variants = authVariants(p, kind);
+  const body = JSON.stringify(payload);
+  let res;
+  for (let i = 0; i < variants.length; i++) {
+    const headers = { ...base, ...variants[i], ...(p.headers || {}) };
+    res = await fetch(url, { method: 'POST', headers, body, signal });
+    if (res.ok || (res.status !== 401 && res.status !== 403)) return res;
+    if (i < variants.length - 1) { try { await res.arrayBuffer(); } catch { /* сброс тела перед повтором */ } }
+  }
+  return res;
+}
+
+// Разбор JSON-ответа (нестриминг): перехват лимитов + человекочитаемая ошибка.
+async function parseJsonRes(res, providerId) {
+  if (providerId) captureLimits(providerId, res.headers);
+  const text = await res.text();
+  let data;
+  try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+  if (!res.ok) {
+    const msg = data?.error?.message || data?.raw || res.statusText;
+    throw new Error(explainHttpError(res.status, msg));
+  }
+  return data;
 }
 
 async function callAnthropic(p, opts) {
   if (!p.apiKey) throw new Error(`API-ключ для провайдера "${p.id}" не задан`);
-  const data = await httpJson(`${p.baseUrl}/v1/messages`, {
-    method: 'POST',
-    headers: anthropicHeaders(p),
-    body: JSON.stringify(anthropicBody(p, opts, false)),
-  }, p.id);
+  const res = await llmFetch(p, 'anthropic', anthropicBody(p, opts, false), opts.signal);
+  const data = await parseJsonRes(res, p.id);
   let text = '';
   const toolCalls = [];
   for (const block of data.content || []) {
@@ -243,12 +272,7 @@ async function callAnthropic(p, opts) {
 
 async function streamAnthropic(p, opts, onDelta) {
   if (!p.apiKey) throw new Error(`API-ключ для провайдера "${p.id}" не задан`);
-  const res = await fetch(`${p.baseUrl}/v1/messages`, {
-    method: 'POST',
-    headers: anthropicHeaders(p),
-    body: JSON.stringify(anthropicBody(p, opts, true)),
-    signal: opts.signal,
-  });
+  const res = await llmFetch(p, 'anthropic', anthropicBody(p, opts, true), opts.signal);
   captureLimits(p.id, res.headers);
 
   let text = '';
@@ -356,24 +380,9 @@ function openaiBody(p, { system, messages, model, temperature, maxTokens, useToo
   return body;
 }
 
-function openaiHeaders(p) {
-  return {
-    'content-type': 'application/json',
-    authorization: `Bearer ${p.apiKey || 'not-needed'}`,
-    // Некоторые шлюзы/CDN (Cloudflare и пр.) без User-Agent отдают странные коды
-    // (305/403/503) вместо нормального ответа — представляемся обычным клиентом.
-    'user-agent': 'Rublox/0.2 (+https://github.com/SqwaTik/roblox-ai-assistant)',
-    'accept': 'application/json',
-    ...(p.headers || {}),
-  };
-}
-
 async function callOpenAI(p, opts) {
-  const data = await httpJson(`${p.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: openaiHeaders(p),
-    body: JSON.stringify(openaiBody(p, opts, false)),
-  }, p.id);
+  const res = await llmFetch(p, 'openai', openaiBody(p, opts, false), opts.signal);
+  const data = await parseJsonRes(res, p.id);
   const choice = data.choices?.[0]?.message || {};
   const toolCalls = (choice.tool_calls || []).map((tc) => {
     let args = {};
@@ -388,12 +397,7 @@ async function callOpenAI(p, opts) {
 }
 
 async function streamOpenAI(p, opts, onDelta) {
-  const res = await fetch(`${p.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: openaiHeaders(p),
-    body: JSON.stringify(openaiBody(p, opts, true)),
-    signal: opts.signal,
-  });
+  const res = await llmFetch(p, 'openai', openaiBody(p, opts, true), opts.signal);
   captureLimits(p.id, res.headers);
 
   let text = '';
