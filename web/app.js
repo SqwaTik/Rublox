@@ -134,6 +134,21 @@ function onMessage(m) {
 function shortArgs(a) { const s = JSON.stringify(a || {}); return s.length > 70 ? s.slice(0, 70) + '…' : s; }
 function truncate(s, n) { s = String(s); return s.length > n ? s.slice(0, n) + '…' : s; }
 
+// Подчищаем сырой tool_use, иногда «протекающий» в текст ответа от некоторых
+// моделей/прокси: «(tool_use) name=… input={…}», XML-блоки function_calls/invoke.
+// Сервер уже извлекает их в реальные вызовы, но на всякий случай прячем остатки,
+// чтобы пользователь не видел технический мусор в пузыре ответа.
+function stripRawToolUse(s) {
+  if (!s || s.indexOf('tool_use') === -1 && s.indexOf('<invoke') === -1 && s.indexOf('function_calls') === -1) return s;
+  return String(s)
+    .replace(/\(tool_use\)\s*name=[A-Za-z0-9_]+(?:\s+id=\S+)?\s*input=\{[\s\S]*?\}(?=\s*(?:\(tool_use\)|$))/g, '')
+    .replace(/<invoke\s+name=[\s\S]*?<\/invoke>/g, '')
+    .replace(/<\/?function_calls>/g, '')
+    .replace(/<\/?antml:[^>]*>/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 // ── Worklog (индикатор работы) ────────────────────────
 function startWork() {
   workStart = Date.now();
@@ -165,7 +180,7 @@ function buildMsg(cls, text) {
   wrap.className = 'msg ' + cls;
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
-  if (cls.startsWith('assistant')) bubble.innerHTML = window.mdRender(text);
+  if (cls.startsWith('assistant')) bubble.innerHTML = window.mdRender(stripRawToolUse(text));
   else bubble.textContent = text;
   wrap.appendChild(bubble);
   return { wrap, bubble };
@@ -249,70 +264,6 @@ if ($('prj-save')) $('prj-save').onclick = async () => {
   renderProjectBar(); renderProjectList();
   showToast(window.t('saved') || 'Сохранено', 'ok');
 };
-
-// ── Обновления (changelog по страницам) ───────────────
-const CHANGELOG = [
-  { v: 'v0.2.5', date: '', items: [
-    'Кнопки выбора (ask_user) — выбор стека/стиля как в Claude (C++/Tailwind/свой)',
-    'Скриптинг-инструменты: write_script (создать) и edit_script (точечная правка)',
-    'multi_edit — пакетные правки файла за один вызов (как MultiEdit в Claude Code)',
-    'Авто-установка Luau: песочница сама скачивает рантайм и кладёт в PATH',
-    'Аудит генплана: сервер ловит узкие коридоры, мелкие комнаты, пересечения',
-    'review_blueprint — рендер генплана в картинку для vision-проверки компоновки',
-    'Правила масштаба построек — больше никаких крошечных backrooms',
-    'Генпланы переделаны: чистая схема с цифрами + легенда сбоку',
-    'План задач — живой трекер: держится снизу, зачёркивает, крутит текущий',
-    'Ассеты из тулбокса — карточки с превью и кнопкой «Вставить»',
-    'Чинён 400 (tool_use без tool_result) и понятные ошибки 403/429/5xx',
-  ] },
-  { v: 'v0.2.4', date: '', items: [
-    '17 новых ПК-инструментов: фон/stdin процессы, скриншот, буфер обмена',
-    'Уведомления, скачивание файлов, реестр Windows, git-обзор, запуск GUI',
-    'Песочница run_code_sandbox — реально исполняет js/python/lua/bash/ps',
-    'Vision: отправка изображений в чат (скрепка + вставка Ctrl+V)',
-    'Проекты: проектная папка и общая память во всех чатах',
-    'Микробаг старта: первый чат открывается автоматически',
-  ] },
-  { v: 'v0.2.3', date: '', items: [
-    'Чат: исправлена ошибка 400 при смене модели в середине диалога',
-    'Авто-заголовок чата — один раз и по смыслу, без мусора',
-    'Плавный стрим текста, кнопка «вниз», приветствие в пустом чате',
-    'Markdown-таблицы и нумерованные списки, мягкий жирный',
-    'ultrathink в сообщении → максимальное мышление + радужная подсветка',
-    'Кастомные дропдауны, тосты, удаление провайдера из списка',
-    'Раздел Plugins → Скиллы, красивые свотчи тем и переключатели',
-  ] },
-  { v: 'v0.2.2', date: '', items: [
-    'Автодетект реальных моделей провайдера (Bearer + x-api-key)',
-    'Показ только совместимых моделей по протоколу',
-    'Шаблон OpenModel — DeepSeek / Qwen / MiMo / Claude',
-  ] },
-  { v: 'v0.2.1', date: '', items: [
-    'Починен multi/openai (reasoning_effort только reasoning-моделям)',
-    'Реалтайм-синхронизация между окнами, индикатор лимитов',
-    'Бейджи возможностей моделей, фиксы поповеров',
-  ] },
-  { v: 'v0.2.0', date: '', items: [
-    '67 инструментов: постройки по генплану, UI, физика, свет, звук',
-    'ИИ-плагины (скиллы), документация по Luau (29 тем)',
-    '9 тем со свотчами, todo-план, источники веб-поиска',
-  ] },
-];
-let updatesPage = 0;
-function renderUpdates() {
-  const list = $('updatesList'), pager = $('updatesPager');
-  if (!list) return;
-  const rel = CHANGELOG[updatesPage];
-  if (!rel) return;
-  list.innerHTML = `<div class="upd-card"><div class="upd-ver">${rel.v}</div><ul>` +
-    rel.items.map((x) => `<li>${x.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]))}</li>`).join('') +
-    '</ul></div>';
-  pager.innerHTML = CHANGELOG.map((r, i) =>
-    `<span class="upd-dot${i === updatesPage ? ' active' : ''}" data-i="${i}" title="${r.v}"></span>`).join('');
-  pager.querySelectorAll('.upd-dot').forEach((d) => {
-    d.onclick = () => { updatesPage = Number(d.dataset.i); renderUpdates(); };
-  });
-}
 
 // Превращает нативный <select> в кастомный красивый дропдаун (нативный
 // прячем, но он остаётся источником значения и событий change).
@@ -399,7 +350,11 @@ function toolIcon(name) {
   if (name === 'ask_user') return window.ICON.help || window.ICON.cpu;
   if (name === 'write_script' || name === 'edit_script') return window.ICON.edit;
   if (name === 'plan_build' || name === 'review_blueprint') return window.ICON.layout;
-  if (name === 'build_parts' || name === 'group_instances') return window.ICON.box;
+  if (name === 'build_parts' || name === 'group_instances' || name === 'build_room') return window.ICON.box;
+  if (name === 'apply_surface') return window.ICON.image;
+  if (name === 'tween_instance' || name === 'create_cutscene' || name === 'play_animation') return window.ICON.sparkles;
+  if (name === 'code_search' || name === 'search_scripts') return window.ICON.brain;
+  if (name === 'set_sound_volume') return window.ICON.volume;
   if (name === 'create_screen_gui' || name === 'create_ui_element') return window.ICON.layout;
   if (name === 'weld' || name === 'create_constraint' || name === 'add_attachment') return window.ICON.link;
   if (name === 'add_light') return window.ICON.bulb;
@@ -415,11 +370,16 @@ function toolIcon(name) {
 
 // План задач (todo) — отдельная карточка с чекбоксами, обновляется на месте.
 let planEl = null;
+let planCollapsed = false;
 function renderPlan(steps) {
   steps = Array.isArray(steps) ? steps : [];
+  const bar = $('planbar');
+  if (!bar) return;
   const esc = (s) => String(s || '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
   const total = steps.length;
+  if (total === 0) { bar.classList.add('hidden'); planEl = null; return; }
   const done = steps.filter((s) => (s.status || 'pending') === 'done').length;
+  const allDone = done === total;
   const rows = steps.map((s) => {
     const st = s.status || 'pending';
     const cls = st === 'done' ? 'pl-done' : st === 'in_progress' ? 'pl-active' : 'pl-todo';
@@ -430,31 +390,29 @@ function renderPlan(steps) {
         : `<span class="plan-box"></span>`;
     return `<div class="plan-row ${cls}">${mark}<span class="plan-txt">${esc(s.text)}</span></div>`;
   }).join('');
-  const allDone = total > 0 && done === total;
-  const head = `<div class="toolcall-head">${window.ICON.list || ''}<b>${window.t('planTitle') || 'План'}</b>` +
+  const title = window.t('planTitle') || 'План';
+  const caret = `<span class="plan-caret">${window.ICON.chevron || '›'}</span>`;
+  const head = `<div class="planbar-head" id="planbarHead">${caret}` +
+    `<span class="planbar-ic">${window.ICON.list || ''}</span><b>${title}</b>` +
     `<span class="plan-progress">${done}/${total}</span></div>`;
-  const html = head + `<div class="plan-rows">${rows}</div>`;
-  if (planEl && planEl.isConnected) {
-    planEl.innerHTML = html;
-    // Держим план ВНИЗУ: перемещаем его контейнер в конец ленты при обновлении
-    // (как живой статус-трекер в Claude Code), пока он не завершён.
-    const host = planEl.closest('.msg');
-    if (host && !allDone && host !== chat.lastElementChild) chat.appendChild(host);
-  } else {
-    const wrap = document.createElement('div');
-    wrap.className = 'msg tool plan-msg';
-    const bubble = document.createElement('div');
-    bubble.className = 'bubble rich plan-card';
-    bubble.innerHTML = html;
-    wrap.appendChild(bubble);
-    chat.appendChild(wrap);
-    planEl = bubble;
-    trimChat();
-  }
-  if (planEl) planEl.classList.toggle('plan-complete', allDone);
-  // Завершённый план «отпускаем» — следующий update_plan создаст новый снизу.
-  if (allDone) planEl = null;
+  bar.innerHTML = head + `<div class="plan-rows">${rows}</div>`;
+  bar.classList.remove('hidden');
+  bar.classList.toggle('plan-complete', allDone);
+  bar.classList.toggle('plan-collapsed', planCollapsed);
+  // Клик по шапке — свернуть/развернуть закреплённый план.
+  const headEl = $('planbarHead');
+  if (headEl) headEl.onclick = () => {
+    planCollapsed = !planCollapsed;
+    bar.classList.toggle('plan-collapsed', planCollapsed);
+  };
+  planEl = bar;
   scrollDown();
+}
+// Спрятать закреплённый план (новый чат / новая отправка).
+function clearPlan() {
+  const bar = $('planbar');
+  if (bar) { bar.classList.add('hidden'); bar.innerHTML = ''; }
+  planEl = null; planCollapsed = false;
 }
 
 // Генплан постройки — чистая схема вида сверху (SVG) + нумерованная легенда сбоку.
@@ -636,7 +594,6 @@ function renderToolResult(name, ok, result) {
   if (ok && name === 'search_assets' && /assetId\s+\d+/.test(String(result || ''))) {
     renderAssets(String(result)); return;
   }
-  // ask_user: выбор уже отражён в карточке вопроса — не дублируем строкой.
   if (name === 'ask_user') return;
   const s = String(result == null ? '' : result);
   // Тривиальный успех не засоряет ленту — детали уже видны в ответе ассистента.
@@ -659,38 +616,94 @@ function renderToolResult(name, ok, result) {
   scrollDown();
 }
 
-// Ассеты тулбокса → аккуратные карточки с превью, id, именем и автором.
-// Клик по «Вставить» отправляет команду /insert <id>.
+// Ассеты тулбокса → аккуратные карточки. Модели: превью + «Вставить» + «Заменить».
+// Аудио: плеер с прослушиванием, регулятором громкости + «Вставить» + «Заменить».
+// Тип берём из заголовка «[assets type=audio]» (его добавляет сервер).
 function renderAssets(text) {
   const esc = (s) => String(s == null ? '' : s).replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+  const typeM = text.match(/\[assets type=(\w+)\]/);
+  const assetType = typeM ? typeM[1] : 'model';
+  const isAudio = assetType === 'audio';
   const items = [];
   for (const line of text.split('\n')) {
     const m = line.match(/assetId\s+(\d+)\s*(?:[—-]\s*(.+?))?\s*(?:\(автор\s+(.+?)\))?\s*$/);
     if (m) items.push({ id: m[1], name: (m[2] || '').trim(), author: (m[3] || '').trim() });
   }
-  if (!items.length) { addMsg('tool', text); return; }
+  if (!items.length) { addMsg('tool', text.replace(/\[assets type=\w+\]\n?/, '')); return; }
+
   const cards = items.map((it) => {
+    const head = `<div class="asset-info"><div class="asset-name" title="${esc(it.name)}">${esc(it.name || 'Без названия')}</div>` +
+      `<div class="asset-meta">${it.author ? '@' + esc(it.author) : ''}</div>` +
+      `<div class="asset-id">id ${esc(it.id)}</div></div>`;
+    const actions =
+      `<button class="asset-insert" data-id="${esc(it.id)}" title="${window.t('insertAsset') || 'Вставить'}">${window.ICON.download || '+'}</button>`;
+    if (isAudio) {
+      // Превью аудио из Roblox CDN. Может не проиграться (приватные ассеты) — тогда
+      // прячем плеер, но «Вставить» работает.
+      const src = `https://assetdelivery.roblox.com/v1/asset/?id=${esc(it.id)}`;
+      return `<div class="asset-card audio" data-id="${esc(it.id)}">` +
+        `<div class="asset-audio-row">` +
+          `<button class="audio-play" data-id="${esc(it.id)}" title="Прослушать">${window.ICON.play || '▶'}</button>` +
+          head +
+        `</div>` +
+        `<audio class="audio-el" preload="none" src="${src}"></audio>` +
+        `<div class="audio-ctl">` +
+          `<span class="vol-ic">${window.ICON.volume || ''}</span>` +
+          `<input class="audio-vol" type="range" min="0" max="100" value="50" title="Громкость"/>` +
+          actions +
+        `</div></div>`;
+    }
     const thumb = `https://www.roblox.com/asset-thumbnail/image?assetId=${it.id}&width=150&height=150&format=png`;
     return `<div class="asset-card" data-id="${esc(it.id)}">` +
       `<img class="asset-thumb" src="${thumb}" loading="lazy" onerror="this.classList.add('noimg')"/>` +
-      `<div class="asset-info"><div class="asset-name" title="${esc(it.name)}">${esc(it.name || 'Без названия')}</div>` +
-      `<div class="asset-meta">${it.author ? '@' + esc(it.author) : ''}</div>` +
-      `<div class="asset-id">id ${esc(it.id)}</div></div>` +
-      `<button class="asset-insert" data-id="${esc(it.id)}" title="${window.t('insertAsset') || 'Вставить'}">${window.ICON.download || '+'}</button>` +
+      head + actions +
       `</div>`;
   }).join('');
+
   clearWelcome();
   const wrap = document.createElement('div');
   wrap.className = 'msg tool';
   const bubble = document.createElement('div');
   bubble.className = 'bubble rich';
-  bubble.innerHTML = `<div class="toolcall-head">${window.ICON.download || ''}<b>${window.t('assetsTitle') || 'Найденные ассеты'}</b> <span class="tc-count">${items.length}</span></div>` +
-    `<div class="asset-grid">${cards}</div>`;
+  const title = isAudio ? (window.t('assetsAudioTitle') || 'Найденные звуки') : (window.t('assetsTitle') || 'Найденные ассеты');
+  bubble.innerHTML = `<div class="toolcall-head">${(isAudio ? window.ICON.volume : window.ICON.download) || ''}<b>${title}</b> <span class="tc-count">${items.length}</span></div>` +
+    `<div class="asset-grid${isAudio ? ' audio-grid' : ''}">${cards}</div>` +
+    `<div class="asset-foot">${window.t('assetsHint') || 'Это выбор ИИ — можно вставить любой или указать свой assetId.'}` +
+      ` <button class="asset-own">${window.t('assetsOwn') || 'Свой assetId…'}</button></div>`;
   wrap.appendChild(bubble);
   chat.appendChild(wrap);
+
+  // Вставка ассета.
   bubble.querySelectorAll('.asset-insert').forEach((b) => {
     b.onclick = () => { send('/insert ' + b.dataset.id); b.classList.add('inserted'); b.innerHTML = window.ICON.check || '✓'; };
   });
+  // Аудио: воспроизведение/пауза + громкость. Только один играет за раз.
+  bubble.querySelectorAll('.audio-play').forEach((btn) => {
+    const card = btn.closest('.asset-card');
+    const audio = card.querySelector('.audio-el');
+    const vol = card.querySelector('.audio-vol');
+    if (audio && vol) audio.volume = Number(vol.value) / 100;
+    btn.onclick = () => {
+      // Остановить остальные.
+      bubble.querySelectorAll('.audio-el').forEach((a) => { if (a !== audio) { a.pause(); a.currentTime = 0; } });
+      bubble.querySelectorAll('.audio-play').forEach((p) => { if (p !== btn) p.innerHTML = window.ICON.play || '▶'; });
+      if (audio.paused) {
+        audio.play().then(() => { btn.innerHTML = window.ICON.pause || '❚❚'; })
+          .catch(() => { btn.innerHTML = window.ICON.close || '×'; btn.title = 'Превью недоступно'; });
+      } else { audio.pause(); btn.innerHTML = window.ICON.play || '▶'; }
+    };
+    if (audio) audio.onended = () => { btn.innerHTML = window.ICON.play || '▶'; };
+  });
+  bubble.querySelectorAll('.audio-vol').forEach((sl) => {
+    const audio = sl.closest('.asset-card').querySelector('.audio-el');
+    sl.oninput = () => { if (audio) audio.volume = Number(sl.value) / 100; };
+  });
+  // Свой assetId — пользователь переопределяет выбор ИИ.
+  const ownBtn = bubble.querySelector('.asset-own');
+  if (ownBtn) ownBtn.onclick = () => {
+    const id = prompt(window.t('assetsOwnPrompt') || 'Введите assetId для вставки:');
+    if (id && /^\d+$/.test(id.trim())) { send('/insert ' + id.trim()); showToast((window.t('inserting') || 'Вставляю') + ' ' + id.trim(), 'ok'); }
+  };
   trimChat();
   scrollDown();
 }
@@ -748,10 +761,11 @@ async function reloadMessages() {
 }
 function startStream() {
   clearWelcome();
+  if (typewriterRAF) { cancelAnimationFrame(typewriterRAF); typewriterRAF = null; }
   const wrap = document.createElement('div');
   wrap.className = 'msg assistant';
   const bubble = document.createElement('div');
-  bubble.className = 'bubble streaming'; bubble.dataset.raw = '';
+  bubble.className = 'bubble streaming'; bubble.dataset.raw = ''; bubble.dataset.target = ''; bubble.dataset.shown = '';
   // Пока текста нет — показываем 3 анимированные точки вместо пустого пузыря.
   bubble.innerHTML = '<span class="typing-dots"><i></i><i></i><i></i></span>';
   wrap.appendChild(bubble); chat.appendChild(wrap);
@@ -760,25 +774,41 @@ function startStream() {
 function appendStream(chunk) {
   if (!streamEl) startStream();
   streamEl.dataset.raw += chunk;
-  scheduleRender(streamEl);
-  scrollDown();
+  streamEl.dataset.target = streamEl.dataset.raw;
+  startTypewriter(streamEl);
 }
-// Плавный стрим: во время печати показываем ПЛОСКИЙ текст (pre-wrap) — он
-// прирастает по символам без рывков. Тяжёлый markdown-рендер (с реflow кода,
-// списков и т.п.) делаем ОДИН раз в конце. Это убирает «дёрганье».
-let renderQueued = false;
-function scheduleRender(el) {
-  if (renderQueued) return;
-  renderQueued = true;
-  requestAnimationFrame(() => {
-    renderQueued = false;
-    if (el) el.textContent = el.dataset.raw;
-    scrollDown();
-  });
+// Плавная «печать»: вместо резких скачков целыми чанками доливаем символы из
+// буфера к показанному тексту покадрово. Скорость подстраивается под отставание —
+// если модель сыпет быстро, печать ускоряется, чтобы не отставать. Это даёт
+// ровный, «живой» поток текста без рывков.
+let typewriterRAF = null;
+function startTypewriter(el) {
+  if (typewriterRAF) return;
+  const tick = () => {
+    typewriterRAF = null;
+    if (!el || !el.isConnected) return;
+    const target = el.dataset.target || '';
+    let shown = el.dataset.shown || '';
+    if (shown.length < target.length) {
+      const behind = target.length - shown.length;
+      // Чем больше отставание, тем крупнее шаг (но минимум 2 симв/кадр) — нагоняем плавно.
+      const step = Math.max(2, Math.ceil(behind / 18));
+      shown = target.slice(0, shown.length + step);
+      el.dataset.shown = shown;
+      el.textContent = shown;
+      scrollDown();
+      typewriterRAF = requestAnimationFrame(tick);
+    } else {
+      el.textContent = target;
+    }
+  };
+  typewriterRAF = requestAnimationFrame(tick);
 }
 function endStream(finalText) {
   if (!streamEl) return;
-  const raw = typeof finalText === 'string' && finalText.length ? finalText : streamEl.dataset.raw;
+  if (typewriterRAF) { cancelAnimationFrame(typewriterRAF); typewriterRAF = null; }
+  let raw = typeof finalText === 'string' && finalText.length ? finalText : streamEl.dataset.raw;
+  raw = stripRawToolUse(raw);
   if (!raw) { streamEl.parentElement.remove(); streamEl = null; return; }
   streamEl.classList.remove('streaming');
   streamEl.innerHTML = window.mdRender(raw);
@@ -869,7 +899,7 @@ async function switchChat(id) {
   activeChat = id;
   chat.innerHTML = '';
   streamEl = null;
-  planEl = null;
+  clearPlan();
   // Загружаем историю с сервера — она хранится на диске.
   const r = await fetch('/api/chats/messages', {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -1164,7 +1194,6 @@ document.querySelectorAll('.tab').forEach((tab) => {
     document.querySelectorAll('.tab-pane').forEach((p) => p.classList.remove('active'));
     tab.classList.add('active');
     document.querySelector(`.tab-pane[data-pane="${tab.dataset.tab}"]`).classList.add('active');
-    if (tab.dataset.tab === 'updates') renderUpdates();
   };
 });
 
@@ -1421,12 +1450,18 @@ $('winMin').onclick = () => winCtl('min');
 $('winMax').onclick = () => winCtl('max');
 $('winClose').onclick = () => winCtl('close');
 
-// Кнопка «вернуться вниз»
-if ($('scrollBtn')) $('scrollBtn').onclick = () => scrollDown(true);
+// Кнопка «вернуться вниз» — плавный спуск (smooth scroll), затем прилипание к низу.
+if ($('scrollBtn')) $('scrollBtn').onclick = () => {
+  stickBottom = true;
+  chat.scrollTo({ top: chat.scrollHeight, behavior: 'smooth' });
+  // После завершения плавной прокрутки спрячем кнопку.
+  setTimeout(updateScrollBtn, 420);
+};
 
 // ── Отправка ───────────────────────────────────────────
 function send(text, images) {
   if ((!text.trim() && !(images && images.length)) || !ws || ws.readyState !== WebSocket.OPEN) return;
+  clearPlan(); // новая задача — старый закреплённый план убираем
   // На сервер шлём только mediaType+data (без url-обёртки).
   const imgs = (images || []).map((i) => ({ mediaType: i.mediaType, data: i.data }));
   ws.send(JSON.stringify({ type: 'message', text, chatId: activeChat, images: imgs }));

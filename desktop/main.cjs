@@ -10,6 +10,7 @@ const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain } = require(
 const { join } = require('node:path');
 const http = require('node:http');
 const { pathToFileURL } = require('node:url');
+const { checkForUpdates } = require('./updater.cjs');
 
 const rootDir = join(__dirname, '..');
 const PORT = process.env.PORT || 8787;
@@ -94,6 +95,8 @@ function createTray() {
     { label: 'Open', click: () => (win ? win.show() : createWindow()) },
     { label: 'Open in browser', click: () => shell.openExternal(APP_URL) },
     { type: 'separator' },
+    { label: 'Проверить обновления', click: () => checkForUpdates({ silent: false, win }) },
+    { type: 'separator' },
     { label: 'Quit', click: () => { isQuiting = true; app.quit(); } },
   ]));
   tray.on('double-click', () => (win ? win.show() : createWindow()));
@@ -112,6 +115,10 @@ if (!app.requestSingleInstanceLock()) {
     await waitServer();
     createWindow();
     createTray();
+    // Тихая проверка обновлений при старте (только в упакованном приложении).
+    if (app.isPackaged) {
+      setTimeout(() => checkForUpdates({ silent: true, win }).catch(() => {}), 4000);
+    }
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });

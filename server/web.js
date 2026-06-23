@@ -137,3 +137,16 @@ export async function searchAssets(keyword, assetType = 'model', limit = 12) {
     return `Ошибка поиска ассетов: ${e.message}. Используйте точный assetId с insert_model.`;
   }
 }
+
+// Расширенный поиск: помимо текста (для модели) добавляем заголовок с типом —
+// фронтенд по нему решает, как рисовать карточки (модель с превью или аудио с
+// плеером). Заголовок начинается с «[assets type=…]» и не мешает модели.
+export async function searchAssetsTyped(keyword, assetType = 'model', limit = 12) {
+  const body = await searchAssets(keyword, assetType, limit);
+  const type = String(assetType || 'model').toLowerCase();
+  if (typeof body !== 'string' || body.startsWith('Ошибка') || body.startsWith('Поиск') ||
+      body.startsWith('Укажите') || body.startsWith('По запросу')) {
+    return body;
+  }
+  return `[assets type=${type}]\n${body}`;
+}

@@ -482,6 +482,71 @@ export const TOOLS = [
     },
   },
   {
+    name: 'build_room',
+    description:
+      'ТОЧНАЯ постройка прямоугольной комнаты — геометрию (пол, потолок, 4 стены по ' +
+      'периметру нужной толщины, дверные проёмы с перемычками) считает плагин, а не ты ' +
+      '«на глаз». Используй это для зданий/комнат вместо ручного build_parts, чтобы не ' +
+      'было кривых стен и щелей. Задай реальные размеры в studs (стены 12–18 высотой, ' +
+      'комната от 30×30) и проёмы. center — центр пола комнаты.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Имя комнаты (Model).' },
+        parent: { type: 'string', description: 'Родитель (по умолчанию Workspace).' },
+        center: { type: 'object', description: '{x,y,z} центр пола комнаты (studs).' },
+        width: { type: 'number', description: 'Ширина по X (studs).' },
+        depth: { type: 'number', description: 'Глубина по Z (studs).' },
+        height: { type: 'number', description: 'Высота стен (studs, обычно 12–18).' },
+        wallThickness: { type: 'number', description: 'Толщина стен/пола (по умолчанию 1).' },
+        wallColor: { type: 'string', description: 'Цвет стен "#RRGGBB".' },
+        wallMaterial: { type: 'string', description: 'Материал стен (Concrete, Brick, Wood, Plaster…).' },
+        floorColor: { type: 'string', description: 'Цвет пола "#RRGGBB".' },
+        floorMaterial: { type: 'string', description: 'Материал пола.' },
+        ceiling: { type: 'boolean', description: 'Делать ли потолок (по умолчанию true).' },
+        ceilingColor: { type: 'string', description: 'Цвет потолка.' },
+        ceilingMaterial: { type: 'string', description: 'Материал потолка.' },
+        doorways: {
+          type: 'array',
+          description: 'Дверные/оконные проёмы в стенах.',
+          items: {
+            type: 'object',
+            properties: {
+              side: { type: 'string', description: 'Стена: north | south | east | west.' },
+              offset: { type: 'number', description: 'Смещение центра проёма от центра стены (studs, 0 = по центру).' },
+              width: { type: 'number', description: 'Ширина проёма (по умолчанию 7).' },
+              height: { type: 'number', description: 'Высота проёма (по умолчанию 10).' },
+            },
+            required: ['side'],
+          },
+        },
+      },
+      required: ['width', 'depth', 'height'],
+    },
+  },
+  {
+    name: 'apply_surface',
+    description:
+      'РЕАЛИСТИЧНОСТЬ построек: применить материал и/или текстуру (кирпич, дерево, ' +
+      'бетон, ОБОИ) к объекту или всем Part контейнера. Это правильный способ сделать ' +
+      '«реалистичнее» — менять МАТЕРИАЛЫ и накладывать текстуры на стены, а НЕ просто ' +
+      'крутить освещение. Текстура накладывается на грани с тайлингом (studsPerTile). ' +
+      'Для обоев/кирпича найди texture через search_assets(assetType=decal) и передай ' +
+      'rbxassetid. Можно задать только material+color, без текстуры.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Путь к Part или контейнеру (модели/папке).' },
+        material: { type: 'string', description: 'Материал: Brick, Wood, Concrete, Plaster, Marble, Cobblestone, Slate, WoodPlanks, Metal…' },
+        color: { type: 'string', description: 'Цвет поверхности "#RRGGBB".' },
+        texture: { type: 'string', description: 'rbxassetid:// текстуры (обои/кирпич/дерево) — опционально.' },
+        faces: { type: 'array', description: 'Грани для текстуры: Front/Back/Left/Right/Top/Bottom (по умолчанию все боковые).' },
+        studsPerTile: { type: 'number', description: 'Размер одной плитки текстуры в studs (по умолчанию 8).' },
+      },
+      required: ['path'],
+    },
+  },
+  {
     name: 'add_proximity_prompt',
     description:
       'Добавить ProximityPrompt на объект — всплывающая подсказка «нажмите E» для ' +
@@ -639,19 +704,39 @@ export const TOOLS = [
   {
     name: 'add_sound',
     description:
-      'Добавить Sound на объект (3D-звук) или в SoundService (глобальный). Можно ' +
-      'зациклить и запустить сразу.',
+      'Добавить Sound на объект (3D-звук) или в SoundService (глобальный). Громкость ' +
+      'по умолчанию умеренная (0.5) — сырые ассеты часто слишком громкие, не ставь ' +
+      'высокую без нужды. Можно зациклить и запустить сразу.',
     parameters: {
       type: 'object',
       properties: {
         parent: { type: 'string', description: 'Путь к родителю (по умолчанию SoundService).' },
         name: { type: 'string', description: 'Имя звука.' },
         soundId: { type: 'string', description: 'Asset id (rbxassetid://...).' },
-        volume: { type: 'number', description: 'Громкость.' },
+        volume: { type: 'number', description: 'Громкость 0..1 (по умолчанию 0.5). Фон — 0.2–0.4.' },
+        playbackSpeed: { type: 'number', description: 'Скорость воспроизведения (1 = норма).' },
+        rollOffMinDistance: { type: 'number', description: 'Дистанция начала затухания 3D-звука (studs).' },
+        rollOffMaxDistance: { type: 'number', description: 'Дистанция полного затухания (studs).' },
         looped: { type: 'boolean', description: 'Зациклить.' },
         playOnCreate: { type: 'boolean', description: 'Запустить сразу.' },
       },
       required: ['soundId'],
+    },
+  },
+  {
+    name: 'set_sound_volume',
+    description:
+      'Изменить громкость/скорость/цикл существующего звука по пути. Если path — ' +
+      'контейнер (модель/папка), настраивает ВСЕ Sound внутри. Без path — применяет ' +
+      'ко ВСЕМ звукам плейса (быстрое «сделай тише всё», когда звук слишком громкий).',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Путь к Sound или контейнеру (необязательно — иначе все звуки).' },
+        volume: { type: 'number', description: 'Новая громкость 0..1.' },
+        playbackSpeed: { type: 'number', description: 'Скорость воспроизведения.' },
+        looped: { type: 'boolean', description: 'Зациклить/расциклить.' },
+      },
     },
   },
   {
@@ -669,6 +754,77 @@ export const TOOLS = [
         fogEnd: { type: 'number', description: 'Дальность тумана (studs).' },
         fogColor: { type: 'string', description: 'Цвет тумана "#RRGGBB".' },
       },
+    },
+  },
+  {
+    name: 'tween_instance',
+    description:
+      'Анимировать свойства объекта через TweenService — плавное изменение Position, ' +
+      'Size, Orientation, Color, Transparency, CFrame и др. за заданное время. Основа ' +
+      'движущихся дверей, платформ, эффектов появления. Значения как у set_properties ' +
+      '("Vector3.new(...)", "CFrame.new(...)", "Color3.fromRGB(...)").',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Путь к объекту.' },
+        properties: { type: 'object', description: 'Целевые свойства, напр. { "Position": "Vector3.new(0,20,0)" }.' },
+        duration: { type: 'number', description: 'Длительность в секундах (по умолчанию 1).' },
+        easingStyle: { type: 'string', description: 'Стиль: Linear, Sine, Quad, Cubic, Bounce, Elastic, Back (по умолчанию Quad).' },
+        easingDirection: { type: 'string', description: 'In, Out, InOut (по умолчанию Out).' },
+        repeatCount: { type: 'number', description: 'Сколько повторов (-1 = бесконечно).' },
+        reverses: { type: 'boolean', description: 'Откатывать обратно после каждого прохода.' },
+        delay: { type: 'number', description: 'Задержка перед стартом (сек).' },
+      },
+      required: ['path', 'properties'],
+    },
+  },
+  {
+    name: 'create_cutscene',
+    description:
+      'Создать КАТСЦЕНУ с крутыми движениями камеры: камера плавно облетает сцену по ' +
+      'ключевым кадрам (CFrame) с переходами TweenService. Генерирует готовый LocalScript ' +
+      'в StarterPlayerScripts. Каждый кадр: position (где камера), lookAt (куда смотрит), ' +
+      'duration (за сколько прилететь), easingStyle. Делай 3–6 кадров для кинематографичного ' +
+      'облёта. Запускается в Play.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Имя катсцены.' },
+        parent: { type: 'string', description: 'Куда положить скрипт (по умолчанию StarterPlayerScripts).' },
+        autoStart: { type: 'boolean', description: 'Запускать сразу при входе (по умолчанию true).' },
+        frames: {
+          type: 'array',
+          description: 'Ключевые кадры камеры по порядку.',
+          items: {
+            type: 'object',
+            properties: {
+              position: { type: 'object', description: '{x,y,z} позиция камеры (studs).' },
+              lookAt: { type: 'object', description: '{x,y,z} точка, на которую смотрит камера.' },
+              duration: { type: 'number', description: 'Время перехода к этому кадру (сек).' },
+              easingStyle: { type: 'string', description: 'Sine, Quad, Cubic, Linear… (по умолчанию Sine).' },
+            },
+            required: ['position', 'lookAt'],
+          },
+        },
+      },
+      required: ['frames'],
+    },
+  },
+  {
+    name: 'play_animation',
+    description:
+      'Назначить и проиграть анимацию (по AnimationId из каталога) на Humanoid персонажа/ ' +
+      'NPC. Укажи path к модели с Humanoid или к самому Humanoid. Реальное воспроизведение — ' +
+      'в Play-режиме. Для поиска анимаций используй search_assets.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Путь к модели с Humanoid или к Humanoid.' },
+        animationId: { type: 'string', description: 'rbxassetid:// анимации.' },
+        name: { type: 'string', description: 'Имя анимации.' },
+        looped: { type: 'boolean', description: 'Зациклить.' },
+      },
+      required: ['path', 'animationId'],
     },
   },
   {
@@ -731,6 +887,42 @@ export const TOOLS = [
         maxChars: { type: 'number', description: 'Ограничение длины текста (по умолчанию 4000).' },
       },
       required: ['url'],
+    },
+  },
+  {
+    name: 'code_search',
+    description:
+      'СЕМАНТИЧЕСКИЙ поиск по коду на ПК — используй ВМЕСТО grep_files, когда ищешь ' +
+      'ФИЧУ или ПОВЕДЕНИЕ, а не точную строку. Сам расширяет запрос синонимами ' +
+      '(напр. «авторизация» найдёт login/signin/auth/session) и возвращает только ' +
+      'РЕЛЕВАНТНЫЕ ФУНКЦИИ ЦЕЛИКОМ с путём и номерами строк — не нужно вычитывать ' +
+      'весь модуль. Это сильно экономит токены на этапе анализа. Запрос пиши ' +
+      'по смыслу: «где обрабатывается урон игрока», «функция сохранения настроек».',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Что ищем по смыслу (фича, поведение, имя).' },
+        path: { type: 'string', description: 'Корень поиска (по умолчанию папка проекта/домашний каталог).' },
+        limit: { type: 'number', description: 'Сколько функций вернуть (по умолчанию 5).' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'search_scripts',
+    description:
+      'СЕМАНТИЧЕСКИЙ поиск по скриптам в открытом плейсе Roblox Studio — аналог ' +
+      'code_search, но для Lua-скриптов в дереве игры. Расширяет запрос синонимами ' +
+      'и возвращает релевантные функции ЦЕЛИКОМ с путём к скрипту и строками, не ' +
+      'заставляя читать весь скрипт. Используй на этапе анализа вместо перебора ' +
+      'get_script_source по всем скриптам — экономит токены.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Что ищем по смыслу (фича, поведение, имя функции).' },
+        limit: { type: 'number', description: 'Сколько фрагментов вернуть (по умолчанию 5).' },
+      },
+      required: ['query'],
     },
   },
   {
@@ -835,6 +1027,126 @@ export const TOOLS = [
     parameters: { type: 'object', properties: {} },
   },
 
+  // ── Studio: история, ландшафт, NPC, камера ──
+  {
+    name: 'undo',
+    description:
+      'Отменить последнее действие в Studio (как Ctrl+Z) через ChangeHistoryService. ' +
+      'Каждый изменяющий инструмент Rublox создаёт точку отмены автоматически, поэтому ' +
+      'правки ИИ можно откатывать. Можно отменить несколько шагов параметром count.',
+    parameters: {
+      type: 'object',
+      properties: {
+        count: { type: 'number', description: 'Сколько шагов отменить (по умолчанию 1).' },
+      },
+    },
+  },
+  {
+    name: 'redo',
+    description: 'Повторить отменённое действие в Studio (как Ctrl+Y). count — сколько шагов.',
+    parameters: {
+      type: 'object',
+      properties: {
+        count: { type: 'number', description: 'Сколько шагов повторить (по умолчанию 1).' },
+      },
+    },
+  },
+  {
+    name: 'fill_terrain',
+    description:
+      'ЛАНДШАФТ: заполнить область вокселями Terrain заданным материалом (горы, вода, ' +
+      'песок, земля). shape="block" — параллелепипед по center{x,y,z}+size{x,y,z}; ' +
+      'shape="ball" — сфера по center+radius; shape="cylinder" — цилиндр по center+radius+height. ' +
+      'operation="fill" (по умолчанию) добавляет, operation="cut" вырезает (выкапывает). ' +
+      'material: Grass, Sand, Rock, Water, Snow, Mud, Ground, Slate, Concrete, Asphalt, ' +
+      'LeafyGrass, Sandstone, Ice, Basalt, Limestone и т.д. Размеры в studs.',
+    parameters: {
+      type: 'object',
+      properties: {
+        shape: { type: 'string', description: 'block | ball | cylinder (по умолчанию block).' },
+        center: { type: 'object', description: '{x,y,z} центр области (studs).' },
+        size: { type: 'object', description: '{x,y,z} размер для block (studs).' },
+        radius: { type: 'number', description: 'Радиус для ball/cylinder (studs).' },
+        height: { type: 'number', description: 'Высота для cylinder (studs).' },
+        material: { type: 'string', description: 'Материал Terrain (по умолчанию Grass). Для воды — Water.' },
+        operation: { type: 'string', enum: ['fill', 'cut'], description: 'fill (добавить) или cut (вырезать).' },
+      },
+      required: ['center'],
+    },
+  },
+  {
+    name: 'clear_terrain',
+    description: 'ЛАНДШАФТ: полностью очистить весь Terrain плейса (Terrain:Clear). Необратимо в рамках шага.',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'create_npc',
+    description:
+      'Создать NPC/болванку (rig) с Humanoid — готового персонажа для скриптов ИИ, врагов, ' +
+      'торговцев. rigType="R15" (по умолчанию) или "R6". Появляется в Workspace по позиции. ' +
+      'Если задан appearanceUserId — наденет внешний вид этого игрока (HumanoidDescription). ' +
+      'Логику поведения навешивай скриптом отдельно (write_script).',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Имя NPC (по умолчанию "NPC").' },
+        rigType: { type: 'string', enum: ['R15', 'R6'], description: 'Тип рига.' },
+        position: { type: 'object', description: '{x,y,z} где разместить (по умолчанию над спавном).' },
+        parent: { type: 'string', description: 'Путь к родителю (по умолчанию Workspace).' },
+        appearanceUserId: { type: 'number', description: 'UserId игрока, чей вид надеть (необязательно).' },
+      },
+    },
+  },
+  {
+    name: 'focus_camera',
+    description:
+      'Навести камеру Studio (edit-режим) на объект по path ИЛИ на точку. Полезно перед ' +
+      'take_screenshot, чтобы показать постройку пользователю. При path камера красиво ' +
+      'облетит/встанет так, чтобы объект целиком попал в кадр.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Путь к объекту, на который смотреть.' },
+        position: { type: 'object', description: '{x,y,z} позиция камеры (если без path).' },
+        lookAt: { type: 'object', description: '{x,y,z} точка, на которую смотрит камера.' },
+      },
+    },
+  },
+
+  {
+    name: 'apply_character_skin',
+    description:
+      'СКИН/ВНЕШНИЙ ВИД персонажа: одеть риг с Humanoid (R6/R15, NPC или StarterCharacter) — ' +
+      'одежда, цвета тела, аксессуары, лицо. Работает по описанию ИЛИ по приложенному ' +
+      'СКРИНШОТУ (ты — vision-модель: разгляди цвета/одежду на картинке и перенеси их сюда, ' +
+      'подбирая каталожные asset id через search_assets). Если path не указан — берётся ' +
+      'выделенный объект или первый Humanoid в Workspace. Цвета — hex "#RRGGBB". Одежду/лицо/' +
+      'аксессуары задавай числовыми asset id (их находи через search_assets: assetType ' +
+      '"image"/"decal" для одежды, "model" для аксессуаров каталога). Можно вызвать несколько ' +
+      'раз, докидывая детали.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Путь к модели с Humanoid (необязательно).' },
+        skinColor: { type: 'string', description: 'Один тон кожи/тела "#RRGGBB" на все части (если bodyColors не задан).' },
+        bodyColors: {
+          type: 'object',
+          description: 'Цвета по частям: { Head, Torso, LeftArm, RightArm, LeftLeg, RightLeg } — каждое "#RRGGBB".',
+        },
+        shirt: { type: 'number', description: 'Asset id рубашки (Shirt → ShirtTemplate).' },
+        pants: { type: 'number', description: 'Asset id штанов (Pants → PantsTemplate).' },
+        tshirt: { type: 'number', description: 'Asset id футболки-графики (ShirtGraphic).' },
+        face: { type: 'number', description: 'Asset id лица (декаль face на голове).' },
+        accessories: {
+          type: 'array',
+          description: 'Asset id аксессуаров каталога (шляпы, волосы, очки) — будут надеты через AddAccessory.',
+          items: { type: 'number' },
+        },
+        clearAccessories: { type: 'boolean', description: 'Снять текущие аксессуары перед надеванием новых.' },
+      },
+    },
+  },
+
   // ── ПК-инструменты (когда Studio не подключён) ──
   {
     name: 'run_command',
@@ -892,7 +1204,7 @@ export const TOOLS = [
   {
     name: 'multi_edit',
     description:
-      'Несколько точечных правок ОДНОГО файла за один вызов (как MultiEdit в Claude Code). ' +
+      'Несколько точечных правок ОДНОГО файла за один вызов (мульти-правка). ' +
       'Правки применяются по порядку; если хоть одна не находит фрагмент — НИЧЕГО не ' +
       'сохраняется (атомарно). Эффективнее, чем много вызовов edit_file подряд.',
     parameters: {
@@ -1282,7 +1594,7 @@ export const PC_TOOLS = new Set([
   'clipboard_read', 'clipboard_write', 'notify', 'take_screenshot', 'download_file',
   'reg_query', 'reg_set', 'run_background', 'process_output', 'process_input',
   'process_stop', 'process_list', 'git', 'launch_app', 'focus_window', 'send_keys',
-  'run_code_sandbox', 'install_runtime',
+  'run_code_sandbox', 'install_runtime', 'code_search',
 ]);
 
 // Инструменты со спец-логикой в agent.js (не чистый проброс).

@@ -4,5 +4,7 @@ providers.json
 data/
 build/
 dist/
+release/
+*.exe
 *.log
 .DS_Store

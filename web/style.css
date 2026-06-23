@@ -215,7 +215,7 @@ html, body {
 .src-chip img { width: 14px; height: 14px; border-radius: 3px; flex: none; }
 .src-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ── Карточка плана (todo-трекер как в Claude Code) ── */
+/* ── Карточка плана (todo-трекер) ── */
 .plan-card { border-color: var(--border); background: rgba(255,255,255,0.025); }
 .plan-card .toolcall-head { align-items: center; }
 .plan-progress { margin-left: auto; font-size: 11px; color: var(--muted); font-weight: 600;
@@ -235,6 +235,30 @@ html, body {
 @keyframes plan-spin { to { transform: rotate(360deg); } }
 .plan-card.plan-complete { opacity: .8; }
 .plan-card.plan-complete .plan-progress { background: var(--ok); color: #fff; }
+
+/* ── Закреплённый план снизу (как в Claude Code) ── */
+.planbar {
+  flex: none; margin: 0 4px 2px; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--panel); overflow: hidden;
+  display: flex; flex-direction: column; max-height: 40vh;
+  box-shadow: 0 -2px 14px rgba(0,0,0,0.22); animation: rise 0.18s ease;
+}
+.planbar.hidden { display: none; }
+.planbar-head {
+  display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;
+  padding: 9px 12px; font-size: 13px; flex: none;
+  border-bottom: 1px solid var(--border); background: rgba(255,255,255,0.03);
+}
+.planbar-head b { font-size: 13px; }
+.planbar-head .planbar-ic svg { width: 15px; height: 15px; vertical-align: -2px; color: var(--muted); }
+.plan-caret { display: inline-flex; transition: transform .18s ease; color: var(--muted); }
+.plan-caret svg { width: 16px; height: 16px; }
+.planbar.plan-collapsed .plan-caret { transform: rotate(-90deg); }
+.planbar .plan-rows { overflow-y: auto; padding: 8px 12px 10px; }
+.planbar.plan-collapsed .plan-rows { display: none; }
+.planbar.plan-complete .planbar-head { background: rgba(63,185,80,0.10); }
+.planbar.plan-complete .plan-progress { background: var(--ok); color: #fff; }
+.planbar .plan-progress { margin-left: auto; }
 
 /* В браузере (не Electron) прячем кнопки управления окном. */
 .in-browser .tb-controls { display: none; }
@@ -394,6 +418,25 @@ label.full textarea {
 .asset-insert:hover { background: var(--accent); }
 .asset-insert.inserted { background: var(--ok); }
 
+/* ── Аудио-ассеты: плеер + громкость ── */
+.asset-foot { margin-top: 9px; font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.asset-own { background: rgba(255,255,255,0.05); border: 1px solid var(--border-2); color: var(--accent-2);
+  border-radius: 8px; padding: 3px 10px; cursor: pointer; font-size: 11.5px; }
+.asset-own:hover { background: rgba(255,255,255,0.1); }
+.audio-grid { grid-template-columns: 1fr; gap: 7px; }
+.asset-card.audio { padding: 9px 11px; gap: 8px; }
+.asset-audio-row { display: flex; align-items: center; gap: 10px; }
+.asset-card.audio .asset-info { padding: 0; flex: 1; min-width: 0; }
+.audio-play { width: 34px; height: 34px; flex: none; border-radius: 50%; border: none; cursor: pointer;
+  background: var(--accent-grad); color: #fff; display: inline-flex; align-items: center; justify-content: center; }
+.audio-play svg { width: 16px; height: 16px; }
+.audio-play:hover { filter: brightness(1.1); }
+.audio-ctl { display: flex; align-items: center; gap: 9px; position: static; }
+.audio-ctl .vol-ic { color: var(--muted); display: inline-flex; }
+.audio-ctl .vol-ic svg { width: 15px; height: 15px; }
+.asset-card.audio .asset-insert { position: static; width: 30px; height: 26px; }
+.audio-vol { flex: 1; accent-color: var(--accent); height: 4px; cursor: pointer; }
+
 .msg.user { align-self: flex-end; }
 .msg.assistant, .msg.tool { align-self: flex-start; }
 .bubble { padding: 11px 15px; border-radius: 15px; line-height: 1.6; word-wrap: break-word; border: 1px solid var(--border-2); }
@@ -425,15 +468,17 @@ label.full textarea {
 .codeblock pre { margin: 0; padding: 26px 14px 12px; overflow-x: auto; }
 .codeblock code { background: none; padding: 0; font-size: 12.5px; line-height: 1.5; color: #ffd9de; }
 .code-lang { position: absolute; top: 6px; left: 12px; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
-.copy-btn { position: absolute; top: 6px; right: 8px; padding: 3px 9px; font-size: 11px; border-radius: 6px; border: 1px solid var(--border-2); cursor: pointer; background: rgba(255, 255, 255, 0.06); color: var(--muted); }
+.copy-btn { position: absolute; top: 6px; right: 8px; width: 26px; height: 22px; padding: 0; font-size: 11px; border-radius: 6px; border: 1px solid var(--border-2); cursor: pointer; background: rgba(255, 255, 255, 0.06); color: var(--muted); display: inline-flex; align-items: center; justify-content: center; }
+.copy-btn svg { width: 14px; height: 14px; display: block; }
 .copy-btn:hover { background: rgba(255, 255, 255, 0.14); color: var(--text); }
+.copy-btn.copied { color: var(--ok); border-color: rgba(61,220,132,.4); }
 /* Списки-планы с галочками */
 .bubble li.done { list-style: none; margin-left: -16px; color: var(--ok); }
 .bubble li.done::before { content: '✔'; margin-right: 8px; }
 .bubble li.todo { list-style: none; margin-left: -16px; color: var(--muted); }
 .bubble li.todo::before { content: '◻'; margin-right: 8px; color: var(--accent-2); }
 
-/* ── Worklog (как в Claude Code) ── */
+/* ── Worklog (индикатор работы) ── */
 .worklog { display: flex; align-items: center; gap: 9px; padding: 4px 14px; font-size: 13px; color: var(--muted); }
 .wl-spin { color: var(--accent-2); animation: spin 1.4s linear infinite; display: inline-block; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -584,16 +629,6 @@ label.full textarea {
 .prj-row .prj-name { font-weight: 600; font-size: 13px; }
 .prj-row .prj-sub { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 label.full input { width: 100%; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border-2); background: var(--panel-2); color: var(--text); font-size: 13px; }
-
-/* ── Вкладка Обновления (changelog по страницам) ── */
-.upd-card { border: 1px solid var(--border-2); border-radius: 12px; padding: 14px 16px; background: rgba(255,255,255,0.02); animation: tabIn .2s ease; }
-.upd-ver { font-size: 15px; font-weight: 700; color: var(--accent-2); margin-bottom: 8px; }
-.upd-card ul { margin: 0; padding-left: 18px; }
-.upd-card li { font-size: 13px; color: var(--muted); margin: 4px 0; line-height: 1.45; }
-.updates-pager { display: flex; gap: 7px; justify-content: center; margin-top: 14px; }
-.upd-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-2); cursor: pointer; transition: background .15s, transform .15s; }
-.upd-dot:hover { transform: scale(1.3); }
-.upd-dot.active { background: var(--accent); }
 
 /* ── Кастомный дропдаун (вместо нативного select) ── */
 .cselect { position: relative; }

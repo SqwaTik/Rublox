@@ -63,7 +63,7 @@ export const config = {
     model: process.env.LOCAL_MODEL || 'llama3.1',
   },
 
-  compressThreshold: num(process.env.CONTEXT_COMPRESS_THRESHOLD, 6000),
+  compressThreshold: num(process.env.CONTEXT_COMPRESS_THRESHOLD, 4500),
   allowLocalExec: bool(process.env.ALLOW_LOCAL_EXEC, false),
 
   // Prompt caching (Anthropic): кэш системного промпта и схем инструментов между
