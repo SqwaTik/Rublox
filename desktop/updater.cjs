@@ -10,7 +10,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { app, dialog, shell, Notification } = require('electron');
 
-const REPO = 'SqwaTik/roblox-ai-assistant';
+const REPO = 'SqwaTik/Rublox';
 const UA = 'Rublox-Updater';
 
 // GET JSON с GitHub API (нужен User-Agent, следуем за редиректами).
