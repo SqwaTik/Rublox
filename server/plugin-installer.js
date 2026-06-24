@@ -26,6 +26,17 @@ function findPluginLua() {
   return join(dirs[0], names[0]);
 }
 
+// Версия ВСТРОЕННОГО плагина (из исходника) — с ней сервер сравнивает версию
+// плагина, подключённого в Studio, чтобы предлагать переустановку только когда
+// бандл реально новее (а не на каждый апдейт приложения).
+export function bundledPluginVersion() {
+  try {
+    const src = readFileSync(findPluginLua(), 'utf8');
+    const m = src.match(/PLUGIN_VERSION\s*=\s*["']([\d.]+)["']/);
+    return m ? m[1] : config.version;
+  } catch { return config.version; }
+}
+
 const buildDir = join(config.dataDir, 'build');
 
 // Экранирование для XML-CDATA: разбиваем последовательность ]]>, если встретится.

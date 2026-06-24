@@ -1,6 +1,6 @@
 {
   "name": "rublox",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Rublox — AI-ассистент для Roblox Studio: чат с любым LLM-провайдером, мост к плагину Studio, мультичаты, экономия токенов",
   "author": "SqwaTik",
   "repository": { "type": "git", "url": "https://github.com/SqwaTik/roblox-ai-assistant.git" },

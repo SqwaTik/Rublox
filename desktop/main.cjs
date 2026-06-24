@@ -41,10 +41,18 @@ function createSplash() {
       webPreferences: { nodeIntegration: true, contextIsolation: false },
     });
     splash.loadFile(join(__dirname, 'splash.html'));
+    splashShownAt = Date.now();
   } catch (e) { console.error('splash:', e && e.message); splash = null; }
 }
+let splashShownAt = 0;
+const MIN_SPLASH_MS = 1400; // гарантируем, что сплеш видно, даже если старт мгновенный
 function splashStage(text) { try { splash && splash.webContents.send('splash-stage', text); } catch { /* закрыт */ } }
-function closeSplash() { try { if (splash && !splash.isDestroyed()) splash.close(); } catch { /* ok */ } splash = null; }
+function closeSplash() {
+  const doClose = () => { try { if (splash && !splash.isDestroyed()) splash.close(); } catch { /* ok */ } splash = null; };
+  const elapsed = Date.now() - splashShownAt;
+  if (splash && elapsed < MIN_SPLASH_MS) setTimeout(doClose, MIN_SPLASH_MS - elapsed);
+  else doClose();
+}
 
 // Занят ли TCP-порт (быстрый connect-чек).
 function isPortOccupied(port) {

@@ -29,8 +29,8 @@ function getJson(url) {
   });
 }
 
-// Скачать файл (следуя за редиректами GitHub→S3) в dest.
-function download(url, dest) {
+// Скачать файл (следуя за редиректами GitHub→S3) в dest. onProgress(pct 0..100).
+function download(url, dest, onProgress) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest);
     const go = (u) => https.get(u, { headers: { 'User-Agent': UA, Accept: 'application/octet-stream' } }, (res) => {
@@ -38,6 +38,15 @@ function download(url, dest) {
         res.resume(); return go(res.headers.location);
       }
       if (res.statusCode !== 200) { res.resume(); return reject(new Error('HTTP ' + res.statusCode)); }
+      const total = Number(res.headers['content-length']) || 0;
+      let got = 0, lastPct = -1;
+      res.on('data', (chunk) => {
+        got += chunk.length;
+        if (total && onProgress) {
+          const pct = Math.floor((got / total) * 100);
+          if (pct !== lastPct) { lastPct = pct; onProgress(pct); }
+        }
+      });
       res.pipe(file);
       file.on('finish', () => file.close(() => resolve(dest)));
     }).on('error', reject);
@@ -142,7 +151,7 @@ async function applyUpdate({ win = null } = {}) {
     if (!exe) { shell.openExternal(rel.html_url || `https://github.com/${REPO}/releases/latest`); return; }
     notify('download', 0);
     const dest = path.join(os.tmpdir(), exe.name);
-    await download(exe.browser_download_url, dest);
+    await download(exe.browser_download_url, dest, (pct) => notify('download', pct));
     notify('install');
     try {
       const child = spawn(dest, ['/S', '--force-run'], { detached: true, stdio: 'ignore' });

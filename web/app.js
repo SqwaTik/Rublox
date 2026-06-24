@@ -130,6 +130,7 @@ function onMessage(m) {
       if (m.version) {
         appVersion = m.version;
         document.querySelectorAll('.about-ver').forEach((el) => { el.textContent = 'v' + m.version; });
+        showWhatsNew(); // показать «что нового», если версия сменилась
       }
       break;
     case 'user':
@@ -365,14 +366,19 @@ function renderNoticeBar() {
   const n = notices[noticeIdx];
   const esc = (s) => String(s || '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
   const more = notices.length - 1;
-  const icon = n.icon || (window.ICON && window.ICON.download) || '';
+  const busy = n.progress != null; // идёт установка обновления
+  const icon = busy
+    ? `<span class="notice-spin">${(window.ICON && window.ICON.spinner) || '◐'}</span>`
+    : (n.icon || (window.ICON && window.ICON.download) || '');
   bar.className = 'notice-bar notice-' + (n.kind || 'info');
+  const right = busy
+    ? `<span class="notice-pct">${n.progress >= 0 ? n.progress + '%' : ''}</span>`
+    : (n.actionLabel ? `<button class="notice-act" id="noticeAct">${esc(n.actionLabel)}</button>` : '') +
+      `<button class="notice-x" id="noticeClose" title="${window.t('close') || 'Закрыть'}">${(window.ICON && window.ICON.close) || '×'}</button>`;
   bar.innerHTML =
-    (more > 0 ? `<button class="notice-queue" id="noticeQueue" title="${window.t('noticeMore') || 'Ещё уведомления'}">+${more}</button>` : '') +
+    (more > 0 && !busy ? `<button class="notice-queue" id="noticeQueue" title="${window.t('noticeMore') || 'Ещё уведомления'}">+${more}</button>` : '') +
     `<span class="notice-ic">${icon}</span>` +
-    `<span class="notice-text">${esc(n.text)}</span>` +
-    (n.actionLabel ? `<button class="notice-act" id="noticeAct">${esc(n.actionLabel)}</button>` : '') +
-    `<button class="notice-x" id="noticeClose" title="${window.t('close') || 'Закрыть'}">${(window.ICON && window.ICON.close) || '×'}</button>`;
+    `<span class="notice-text">${esc(n.text)}</span>` + right;
   bar.classList.remove('hidden');
   const act = $('noticeAct');
   if (act) act.onclick = () => { const fn = n.onAction; if (fn) fn(n); };
@@ -393,15 +399,51 @@ async function checkAppUpdate() {
     text: (window.t('updateAvailable') || 'Доступно обновление') + ` — v${info.latest}`,
     actionLabel: window.t('updateNow') || 'Обновить',
     onAction: async () => {
-      if (window.rublox) {
-        const r = await fetch('/api/update/apply', { method: 'POST' }).then((r) => r.json()).catch(() => null);
-        if (r && r.started) showToast(window.t('updateDownloading') || 'Загрузка обновления…', 'ok');
-        else window.open(info.url, '_blank');
-      } else {
-        window.open(info.url, '_blank');
+      if (!window.rublox) { window.open(info.url, '_blank'); return; }
+      // Переключаем баннер в режим прогресса (кружок + проценты) и слушаем main.
+      pushNotice({ id: 'app-update', kind: 'update', text: window.t('updateDownloading') || 'Загрузка обновления…', progress: 0 });
+      if (window.rublox.onUpdateProgress) {
+        window.rublox.onUpdateProgress(({ stage, pct }) => {
+          if (stage === 'download') pushNotice({ id: 'app-update', kind: 'update', text: window.t('updateDownloading') || 'Загрузка обновления…', progress: typeof pct === 'number' ? pct : 0 });
+          else if (stage === 'install') pushNotice({ id: 'app-update', kind: 'update', text: window.t('updateInstalling') || 'Установка…', progress: 100 });
+          else if (stage === 'error') pushNotice({ id: 'app-update', kind: 'update', text: window.t('updateFailed') || 'Не удалось обновить — откройте страницу релиза', actionLabel: window.t('updateNow') || 'Обновить', onAction: () => window.open(info.url, '_blank'), progress: null });
+        });
       }
+      const r = await fetch('/api/update/apply', { method: 'POST' }).then((r) => r.json()).catch(() => null);
+      if (!r || !r.started) { window.open(info.url, '_blank'); dismissNotice('app-update'); }
     },
   });
+}
+
+// «Что нового» после обновления: один раз на новую версию показываем по центру
+// список изменений (заметки последнего релиза). Запоминаем показанную версию.
+async function showWhatsNew() {
+  if (!appVersion) return;
+  const seen = localStorage.getItem('seenVersion');
+  if (seen === appVersion) return;
+  const info = await fetch('/api/update/info').then((r) => r.json()).catch(() => null);
+  // notes актуальны, когда установленная версия = последняя в релизах.
+  const notes = info && info.latest === appVersion ? info.notes : '';
+  localStorage.setItem('seenVersion', appVersion);
+  if (seen === null) return; // первый запуск/чистый профиль — не показываем
+  openWhatsNew(appVersion, notes);
+}
+
+function openWhatsNew(version, notes) {
+  const ov = document.createElement('div');
+  ov.className = 'modal-overlay whatsnew-overlay';
+  const body = notes ? window.mdRender(notes) : `<p>Установлена версия v${esc(version)}.</p>`;
+  ov.innerHTML =
+    `<div class="modal modal-sm whatsnew">` +
+      `<div class="wn-head"><span class="wn-badge">v${esc(version)}</span>` +
+      `<b>${window.t('whatsNew') || 'Что нового'}</b></div>` +
+      `<div class="wn-body">${body}</div>` +
+      `<div class="wn-foot"><button class="btn-primary" id="wnClose">${window.t('gotIt') || 'Понятно'}</button></div>` +
+    `</div>`;
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.querySelector('#wnClose').onclick = close;
+  ov.onclick = (e) => { if (e.target === ov) close(); };
 }
 
 // Инлайн-заметка по центру, без пузыря (напр. «Остановлено»).

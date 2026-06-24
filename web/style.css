@@ -790,6 +790,26 @@ label.full input { width: 100%; padding: 9px 12px; border-radius: 10px; border: 
 }
 .notice-queue:hover { transform: scale(1.12); }
 @keyframes noticeIn { from { opacity: 0; transform: translate(-50%, -16px) scale(.96); } to { opacity: 1; transform: translateX(-50%); } }
+/* Прогресс установки обновления в баннере */
+.notice-spin { display: inline-flex; }
+.notice-spin svg { width: 16px; height: 16px; color: var(--accent-2); animation: spin 1s linear infinite; }
+.notice-pct { flex: none; min-width: 38px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent-2); }
+/* Окно «Что нового» */
+.whatsnew { width: min(480px, 92vw); overflow: hidden; }
+.wn-head { display: flex; align-items: center; gap: 10px; padding: 16px 18px 10px; }
+.wn-head b { font-size: 16px; }
+.wn-badge { font-size: 12px; font-weight: 700; color: #fff; background: var(--accent-grad);
+  padding: 3px 9px; border-radius: 999px; }
+.wn-body { padding: 4px 18px 8px; max-height: 56vh; overflow-y: auto; font-size: 13.5px; line-height: 1.6; color: var(--text); }
+.wn-body h2, .wn-body h3 { font-size: 14px; margin: 10px 0 6px; }
+.wn-body ul { margin: 6px 0; padding-left: 18px; }
+.wn-body li { margin: 3px 0; }
+.wn-foot { padding: 12px 18px 16px; display: flex; justify-content: flex-end; }
+.wn-foot .btn-primary { padding: 8px 18px; border: 0; border-radius: 9px; cursor: pointer;
+  background: var(--accent-grad); color: #fff; font-size: 13px; font-weight: 600;
+  transition: filter .15s ease, transform .1s ease; }
+.wn-foot .btn-primary:hover { filter: brightness(1.1); }
+.wn-foot .btn-primary:active { transform: scale(.97); }
 
 .hidden { display: none !important; }
 

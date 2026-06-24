@@ -6,7 +6,7 @@
 // через Promise.
 
 import { randomUUID } from 'node:crypto';
-import { config } from './config.js';
+import { bundledPluginVersion } from './plugin-installer.js';
 
 // Версия плагина, ожидаемая этой сборкой (= версия приложения). Если плагин в
 // Studio старее — UI подскажет переустановить. cmp: >0 если a новее b.
@@ -131,6 +131,7 @@ class RobloxBridge {
 
   status() {
     const pv = this.studioInfo && this.studioInfo.pluginVersion;
+    const latest = bundledPluginVersion(); // версия плагина в этой сборке
     return {
       connected: this.isConnected(),
       lastSeen: this.lastSeen,
@@ -138,9 +139,9 @@ class RobloxBridge {
       queued: this.queue.length,
       pending: this.pending.size,
       pluginVersion: pv || null,
-      pluginLatest: config.version,
-      // Плагин устарел, только если он реально подключён и прислал версию.
-      pluginOutdated: !!(this.isConnected() && pv && cmpVer(config.version, pv) > 0),
+      pluginLatest: latest,
+      // Устарел только если подключён, прислал версию и бандл реально новее.
+      pluginOutdated: !!(this.isConnected() && pv && cmpVer(latest, pv) > 0),
     };
   }
 }
