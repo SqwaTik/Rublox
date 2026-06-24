@@ -17,6 +17,7 @@ local CollectionService = game:GetService("CollectionService")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 
 -- ── Конфигурация (можно поменять в полях UI) ──────────
+local PLUGIN_VERSION = "0.5.0" -- версия плагина (сервер сверяет и подсказывает обновление)
 local serverUrl = "http://localhost:8787"
 local token = "change-me"
 local connected = false
@@ -39,12 +40,18 @@ local widgetInfo = DockWidgetPluginGuiInfo.new(
 	Enum.InitialDockState.Right, false, false, 320, 420, 280, 360
 )
 local widget = plugin:CreateDockWidgetPluginGui("RubloxWidget", widgetInfo)
-widget.Title = "Rublox"
+widget.Title = "Rublox v" .. PLUGIN_VERSION
 
-local root = Instance.new("Frame")
+-- root — прокручиваемая область (раньше контент обрезался: не было скролла).
+local root = Instance.new("ScrollingFrame")
 root.Size = UDim2.fromScale(1, 1)
 root.BackgroundColor3 = Color3.fromRGB(23, 27, 34)
 root.BorderSizePixel = 0
+root.ScrollBarThickness = 6
+root.ScrollBarImageColor3 = Color3.fromRGB(90, 100, 120)
+root.ScrollingDirection = Enum.ScrollingDirection.Y
+root.CanvasSize = UDim2.new(0, 0, 0, 0)
+root.AutomaticCanvasSize = Enum.AutomaticSize.Y
 root.Parent = widget
 
 local layout = Instance.new("UIListLayout")
@@ -1789,7 +1796,7 @@ local function sendResult(id, result, err)
 end
 
 local function pollOnce()
-	local studioInfo = { placeName = game.Name, placeId = game.PlaceId }
+	local studioInfo = { placeName = game.Name, placeId = game.PlaceId, pluginVersion = PLUGIN_VERSION }
 	local res = post("/api/roblox/poll", { studioInfo = studioInfo })
 	if not res.Success then
 		error("HTTP " .. tostring(res.StatusCode))

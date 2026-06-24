@@ -6,6 +6,16 @@
 // через Promise.
 
 import { randomUUID } from 'node:crypto';
+import { config } from './config.js';
+
+// Версия плагина, ожидаемая этой сборкой (= версия приложения). Если плагин в
+// Studio старее — UI подскажет переустановить. cmp: >0 если a новее b.
+function cmpVer(a, b) {
+  const pa = String(a || '0').replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b || '0').replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); }
+  return 0;
+}
 
 class RobloxBridge {
   constructor() {
@@ -120,12 +130,17 @@ class RobloxBridge {
   }
 
   status() {
+    const pv = this.studioInfo && this.studioInfo.pluginVersion;
     return {
       connected: this.isConnected(),
       lastSeen: this.lastSeen,
       studioInfo: this.studioInfo,
       queued: this.queue.length,
       pending: this.pending.size,
+      pluginVersion: pv || null,
+      pluginLatest: config.version,
+      // Плагин устарел, только если он реально подключён и прислал версию.
+      pluginOutdated: !!(this.isConnected() && pv && cmpVer(config.version, pv) > 0),
     };
   }
 }

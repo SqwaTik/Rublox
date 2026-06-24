@@ -954,6 +954,18 @@ function renderStatus(s) {
   chip.classList.toggle('disconnected', !connected);
   const place = s?.studioInfo?.placeName ? ` (${s.studioInfo.placeName})` : '';
   $('studioText').textContent = connected ? window.t('studioOn') + place : window.t('studioOff');
+  // Автодетект устаревшего плагина → верхний баннер (с переустановкой).
+  if (s && s.pluginOutdated) {
+    pushNotice({
+      id: 'plugin-update', kind: 'update', icon: (window.ICON && window.ICON.download) || '',
+      text: (window.t('pluginOutdated') || 'Плагин Studio устарел') +
+        ` (v${s.pluginVersion} → v${s.pluginLatest})`,
+      actionLabel: window.t('pluginReinstall') || 'Переустановить',
+      onAction: () => { installPlugin(); },
+    });
+  } else {
+    dismissNotice('plugin-update');
+  }
 }
 $('studioStatus').onclick = async () => {
   const s = await fetch('/api/status').then((r) => r.json()).catch(() => null);
