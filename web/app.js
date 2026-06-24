@@ -403,10 +403,19 @@ async function checkAppUpdate() {
       // Переключаем баннер в режим прогресса (кружок + проценты) и слушаем main.
       pushNotice({ id: 'app-update', kind: 'update', text: window.t('updateDownloading') || 'Загрузка обновления…', progress: 0 });
       if (window.rublox.onUpdateProgress) {
-        window.rublox.onUpdateProgress(({ stage, pct }) => {
+        window.rublox.onUpdateProgress((data) => {
+          const { stage, pct, message, url } = data || {};
           if (stage === 'download') pushNotice({ id: 'app-update', kind: 'update', text: window.t('updateDownloading') || 'Загрузка обновления…', progress: typeof pct === 'number' ? pct : 0 });
           else if (stage === 'install') pushNotice({ id: 'app-update', kind: 'update', text: window.t('updateInstalling') || 'Установка…', progress: 100 });
-          else if (stage === 'error') pushNotice({ id: 'app-update', kind: 'update', text: window.t('updateFailed') || 'Не удалось обновить — откройте страницу релиза', actionLabel: window.t('updateNow') || 'Обновить', onAction: () => window.open(info.url, '_blank'), progress: null });
+          else if (stage === 'error') {
+            const base = window.t('updateFailed') || 'Не удалось обновить';
+            pushNotice({
+              id: 'app-update', kind: 'update', progress: null,
+              text: message ? `${base}: ${message}` : base,
+              actionLabel: window.t('openReleasePage') || 'Открыть релиз',
+              onAction: () => window.open(url || info.url, '_blank'),
+            });
+          }
         });
       }
       const r = await fetch('/api/update/apply', { method: 'POST' }).then((r) => r.json()).catch(() => null);

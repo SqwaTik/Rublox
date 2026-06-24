@@ -30,27 +30,41 @@ function getJson(url) {
 }
 
 // Скачать файл (следуя за редиректами GitHub→S3) в dest. onProgress(pct 0..100).
+// Обрабатываем ОБА источника ошибок — сеть и запись на диск (раньше ошибка
+// файлового потока, напр. блокировка антивирусом, роняла обновление без объяснения).
 function download(url, dest, onProgress) {
   return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(dest);
-    const go = (u) => https.get(u, { headers: { 'User-Agent': UA, Accept: 'application/octet-stream' } }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        res.resume(); return go(res.headers.location);
-      }
-      if (res.statusCode !== 200) { res.resume(); return reject(new Error('HTTP ' + res.statusCode)); }
-      const total = Number(res.headers['content-length']) || 0;
-      let got = 0, lastPct = -1;
-      res.on('data', (chunk) => {
-        got += chunk.length;
-        if (total && onProgress) {
-          const pct = Math.floor((got / total) * 100);
-          if (pct !== lastPct) { lastPct = pct; onProgress(pct); }
+    let file;
+    try { file = fs.createWriteStream(dest); }
+    catch (e) { return reject(new Error('не удалось создать файл: ' + e.message)); }
+    const fail = (err) => {
+      try { file.destroy(); } catch { /* ok */ }
+      try { fs.existsSync(dest) && fs.unlinkSync(dest); } catch { /* ok */ }
+      reject(err);
+    };
+    file.on('error', (e) => fail(new Error('запись на диск не удалась: ' + e.message)));
+    const go = (u, hops) => {
+      if (hops > 6) return fail(new Error('слишком много редиректов'));
+      https.get(u, { headers: { 'User-Agent': UA, Accept: 'application/octet-stream' } }, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          res.resume(); return go(res.headers.location, hops + 1);
         }
-      });
-      res.pipe(file);
-      file.on('finish', () => file.close(() => resolve(dest)));
-    }).on('error', reject);
-    go(url);
+        if (res.statusCode !== 200) { res.resume(); return fail(new Error('сервер ответил HTTP ' + res.statusCode)); }
+        const total = Number(res.headers['content-length']) || 0;
+        let got = 0, lastPct = -1;
+        res.on('data', (chunk) => {
+          got += chunk.length;
+          if (total && onProgress) {
+            const pct = Math.floor((got / total) * 100);
+            if (pct !== lastPct) { lastPct = pct; onProgress(pct); }
+          }
+        });
+        res.on('error', (e) => fail(new Error('обрыв загрузки: ' + e.message)));
+        res.pipe(file);
+        file.on('finish', () => file.close(() => resolve(dest)));
+      }).on('error', (e) => fail(new Error('сеть недоступна: ' + e.message)));
+    };
+    go(url, 0);
   });
 }
 
@@ -141,26 +155,45 @@ async function checkForUpdates({ silent = true, win = null } = {}) {
 // (кнопка «Обновить» в баннере) через /api/update/apply. Прогресс шлём в окно.
 async function applyUpdate({ win = null } = {}) {
   const target = win || BrowserWindow.getAllWindows()[0] || null;
-  const notify = (stage, pct) => { try { target && target.webContents.send('update-progress', { stage, pct }); } catch { /* окно закрыто */ } };
+  const notify = (stage, extra) => {
+    try { target && target.webContents.send('update-progress', typeof extra === 'object' ? { stage, ...extra } : { stage, pct: extra }); }
+    catch { /* окно закрыто */ }
+  };
+  let rel = null;
   try {
     notify('check');
-    const rel = await getJson(`https://api.github.com/repos/${REPO}/releases/latest`);
+    rel = await getJson(`https://api.github.com/repos/${REPO}/releases/latest`);
     const assets = rel.assets || [];
     const exe = assets.find((a) => /\.exe$/i.test(a.name) && /setup/i.test(a.name))
       || assets.find((a) => /\.exe$/i.test(a.name));
-    if (!exe) { shell.openExternal(rel.html_url || `https://github.com/${REPO}/releases/latest`); return; }
+    if (!exe) throw new Error('в релизе нет .exe-установщика');
+
     notify('download', 0);
-    const dest = path.join(os.tmpdir(), exe.name);
+    // Уникальное имя — чтобы не наткнуться на залоченный антивирусом старый файл.
+    const dest = path.join(os.tmpdir(), `RubloxSetup-${exe.name.replace(/[^\w.-]/g, '')}-${process.pid}.exe`);
     await download(exe.browser_download_url, dest, (pct) => notify('download', pct));
+    if (!fs.existsSync(dest) || fs.statSync(dest).size < 1024 * 1024) {
+      throw new Error('скачанный установщик повреждён или пуст');
+    }
+
     notify('install');
+    // Тихая установка с автозапуском. Если spawn не удался — открываем установщик
+    // видимым окном (пользователь дойдёт по шагам). Затем выходим, чтобы можно
+    // было заменить файлы запущенного приложения.
+    let launched = false;
     try {
       const child = spawn(dest, ['/S', '--force-run'], { detached: true, stdio: 'ignore' });
+      child.on('error', () => { /* перехвачено ниже через launched */ });
       child.unref();
-    } catch { shell.openPath(dest); }
-    setTimeout(() => app.exit(0), 600);
+      launched = true;
+    } catch { launched = false; }
+    if (!launched) { try { await shell.openPath(dest); launched = true; } catch { /* ok */ } }
+    if (!launched) throw new Error('не удалось запустить установщик');
+    setTimeout(() => app.exit(0), 800);
   } catch (e) {
-    notify('error');
-    throw e;
+    // Реальный текст ошибки — в окно, плюс открываем страницу релиза как запасной путь.
+    notify('error', { message: (e && e.message) || String(e), url: (rel && rel.html_url) || `https://github.com/${REPO}/releases/latest` });
+    try { shell.openExternal((rel && rel.html_url) || `https://github.com/${REPO}/releases/latest`); } catch { /* ok */ }
   }
 }
 
