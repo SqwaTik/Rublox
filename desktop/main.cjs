@@ -6,9 +6,11 @@
 // динамический import(), чтобы корректно работать и в dev, и в упакованном .exe
 // (где spawn(node) недоступен).
 
-const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, dialog } = require('electron');
 const { join } = require('node:path');
 const http = require('node:http');
+const net = require('node:net');
+const { execFile } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const updater = require('./updater.cjs');
 const { checkForUpdates } = updater;
@@ -43,6 +45,99 @@ function createSplash() {
 }
 function splashStage(text) { try { splash && splash.webContents.send('splash-stage', text); } catch { /* закрыт */ } }
 function closeSplash() { try { if (splash && !splash.isDestroyed()) splash.close(); } catch { /* ok */ } splash = null; }
+
+// Занят ли TCP-порт (быстрый connect-чек).
+function isPortOccupied(port) {
+  return new Promise((resolve) => {
+    const sock = net.connect({ host: '127.0.0.1', port }, () => { sock.destroy(); resolve(true); });
+    sock.on('error', () => resolve(false));
+    sock.setTimeout(700, () => { sock.destroy(); resolve(false); });
+  });
+}
+
+// Спросить /api/ping: вернёт {version, pid}, если порт держит НАШ сервер (иначе null).
+function probeRublox(port) {
+  return new Promise((resolve) => {
+    const req = http.get(`http://127.0.0.1:${port}/api/ping`, (res) => {
+      let body = '';
+      res.on('data', (c) => (body += c));
+      res.on('end', () => {
+        try { const j = JSON.parse(body); resolve(j && j.app === 'rublox' ? j : null); }
+        catch { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(900, () => { req.destroy(); resolve(null); });
+  });
+}
+
+// PID процесса, слушающего порт (Windows: парсим netstat -ano).
+function pidOnPort(port) {
+  return new Promise((resolve) => {
+    execFile('netstat', ['-ano', '-p', 'TCP'], { windowsHide: true }, (err, stdout) => {
+      if (err || !stdout) return resolve(null);
+      for (const line of stdout.split(/\r?\n/)) {
+        if (line.includes('LISTENING') && new RegExp(`[:.]${port}\\b`).test(line)) {
+          const pid = line.trim().split(/\s+/).pop();
+          if (/^\d+$/.test(pid)) return resolve(Number(pid));
+        }
+      }
+      resolve(null);
+    });
+  });
+}
+
+// Завершить процесс по PID (taskkill /F). Возвращает true при успехе.
+function killPid(pid) {
+  return new Promise((resolve) => {
+    execFile('taskkill', ['/F', '/PID', String(pid)], { windowsHide: true }, (err) => resolve(!err));
+  });
+}
+
+// Освободить порт от чужого/залипшего процесса и дождаться, пока он реально
+// освободится (до ~3 с). true — порт свободен.
+async function freePort(port) {
+  const pid = await pidOnPort(port);
+  if (pid && pid !== process.pid) await killPid(pid);
+  for (let i = 0; i < 12; i++) {
+    if (!(await isPortOccupied(port))) return true;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return !(await isPortOccupied(port));
+}
+
+// Разрулить занятый порт ПЕРЕД стартом нашего сервера. Возвращает:
+//  'free'   — порт свободен, запускаем сервер;
+//  'reuse'  — на порту уже наш сервер той же версии, переиспользуем;
+//  'quit'   — пользователь выбрал выход.
+async function ensurePortClear(port) {
+  if (!(await isPortOccupied(port))) return 'free';
+  const id = await probeRublox(port);
+  if (id && id.version === app.getVersion()) return 'reuse'; // здоровый наш сервер
+  // Чужой процесс или СТАРАЯ версия Rublox (классическая причина «залипания»:
+  // окно молча подключалось к устаревшему серверу на 8787).
+  const who = id ? `старая версия Rublox (v${id.version})` : 'посторонний процесс';
+  const choice = dialog.showMessageBoxSync(splash || null, {
+    type: 'warning', title: 'Rublox — порт занят',
+    message: `Порт ${port} занят: ${who}.`,
+    detail: 'Это мешает запустить актуальную версию (окно подключилось бы к чужому/старому серверу). ' +
+      'Освободить порт и продолжить?',
+    buttons: ['Освободить и запустить', 'Выйти'],
+    defaultId: 0, cancelId: 1, noLink: true,
+  });
+  if (choice !== 0) return 'quit';
+  const freed = await freePort(port);
+  if (!freed) {
+    dialog.showMessageBoxSync(splash || null, {
+      type: 'error', title: 'Rublox',
+      message: `Не удалось освободить порт ${port}.`,
+      detail: 'Закройте процесс, занявший порт, вручную (Диспетчер задач) и запустите Rublox снова.',
+      buttons: ['OK'], noLink: true,
+    });
+    return 'quit';
+  }
+  return 'free';
+}
 
 // Запуск сервера в текущем процессе.
 async function startServer() {
@@ -142,11 +237,22 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     createSplash();
-    splashStage('Запуск сервера…');
+    splashStage('Проверка окружения…');
     try {
-      await startServer();
-      splashStage('Проверка файлов…');
-      await waitServer();
+      // Защита от «залипшего» порта: если 8787 держит чужой/старый процесс — не
+      // подключаемся к нему молча, а предлагаем освободить (иначе увидишь старый код).
+      const state = await ensurePortClear(PORT);
+      if (state === 'quit') { isQuiting = true; closeSplash(); app.quit(); return; }
+      if (state === 'free') {
+        splashStage('Запуск сервера…');
+        await startServer();
+        splashStage('Проверка файлов…');
+        await waitServer();
+      } else {
+        // 'reuse' — наш сервер уже работает на порту, второй не поднимаем.
+        splashStage('Подключение…');
+        await waitServer();
+      }
     } catch (e) {
       console.error('startup error:', e && e.message);
     }

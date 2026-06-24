@@ -1795,10 +1795,40 @@ local function sendResult(id, result, err)
 	pcall(post, "/api/roblox/result", { id = id, result = result, error = err })
 end
 
+-- Авто-синхронизация bridge-токена. Сервер и плагин на одной машине, токен
+-- отдаётся локальным эндпоинтом без авторизации — поэтому при 401 (токен в поле
+-- устарел/не совпал) берём актуальный с сервера и больше не теряем связь.
+local function syncToken()
+	local ok, res = pcall(function()
+		return HttpService:RequestAsync({
+			Url = urlBox.Text .. "/api/bridge-token",
+			Method = "GET",
+			Headers = { ["Content-Type"] = "application/json" },
+		})
+	end)
+	if ok and res and res.Success then
+		local good, data = pcall(function() return HttpService:JSONDecode(res.Body) end)
+		if good and data and data.token and data.token ~= "" then
+			tokenBox.Text = data.token
+			token = data.token
+			log("Токен синхронизирован с сервером")
+			return true
+		end
+	end
+	return false
+end
+
 local function pollOnce()
 	local studioInfo = { placeName = game.Name, placeId = game.PlaceId, pluginVersion = PLUGIN_VERSION }
 	local res = post("/api/roblox/poll", { studioInfo = studioInfo })
+	-- 401 → токен устарел: подтягиваем актуальный и повторяем один раз.
+	if res.StatusCode == 401 and syncToken() then
+		res = post("/api/roblox/poll", { studioInfo = studioInfo })
+	end
 	if not res.Success then
+		if res.StatusCode == 401 then
+			error("неверный токен — нажмите «Установить плагин» в Rublox заново")
+		end
 		error("HTTP " .. tostring(res.StatusCode))
 	end
 	local data = HttpService:JSONDecode(res.Body)

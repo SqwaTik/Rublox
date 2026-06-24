@@ -332,6 +332,9 @@ const server = createServer(async (req, res) => {
   const url = req.url.split('?')[0];
   try {
     if (url.startsWith('/api/roblox/')) return await handlePluginApi(req, res, url);
+    // Идентификация инстанса: позволяет десктопу отличить «свой» свежий сервер от
+    // чужого/залипшего процесса, занявшего порт.
+    if (url === '/api/ping') return sendJson(res, 200, { app: 'rublox', version: config.version, pid: process.pid });
     if (url === '/api/status') return sendJson(res, 200, bridge.status());
     if (url.startsWith('/api/')) return await handleAppApi(req, res, url);
     return await serveStatic(req, res);
@@ -342,6 +345,12 @@ const server = createServer(async (req, res) => {
 
 // ── WebSocket: чат ─────────────────────────────────────
 const wss = new WebSocketServer({ server, path: '/ws' });
+// WebSocketServer тоже эмитит 'error' при EADDRINUSE базового сервера — без
+// обработчика это роняло процесс необработанным исключением.
+wss.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') return; // уже обработано на http-сервере
+  console.error('Ошибка WebSocket-сервера:', err && err.message);
+});
 const clients = new Set();
 
 function broadcastStatus() {
@@ -493,6 +502,21 @@ try {
   console.error('ОШИБКА конфигурации инструментов:\n' + err.message);
   process.exit(1);
 }
+
+// Порт занят — НЕ роняем процесс необработанным 'error' (раньше из-за этого в
+// упакованном приложении окно молча подключалось к чужому серверу). Сообщаем
+// наружу: глобальный флаг + хук, который десктоп выставляет до старта сервера.
+server.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    console.error(`Порт ${config.port} занят другим процессом — сервер не запущен.`);
+    globalThis.__rubloxPortInUse = true;
+    if (typeof globalThis.__rubloxOnPortInUse === 'function') {
+      try { globalThis.__rubloxOnPortInUse(config.port); } catch { /* десктоп сам разрулит */ }
+    }
+    return;
+  }
+  console.error('Ошибка HTTP-сервера:', err && err.message);
+});
 
 server.listen(config.port, () => {
   console.log(`Rublox — сервер на http://localhost:${config.port}`);
