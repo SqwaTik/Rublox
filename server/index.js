@@ -26,6 +26,7 @@ import {
 } from './projects.js';
 import { getUsage, addSpent, getSpentTotal } from './usage.js';
 import { getUpdateInfo } from './update.js';
+import { listKnowledge, addKnowledge, removeKnowledge, clearKnowledge } from './knowledge.js';
 import { resolveAsk, hasPendingAsk } from './asks.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -228,6 +229,33 @@ async function handleAppApi(req, res, url) {
       return sendJson(res, 200, { started: true });
     }
     return sendJson(res, 200, { started: false, reason: 'not-desktop' });
+  }
+
+  // ── База знаний агента (самообучение) ──
+  if (url === '/api/knowledge' && req.method === 'GET')
+    return sendJson(res, 200, { items: listKnowledge() });
+  if (url === '/api/knowledge/clear' && req.method === 'POST') { clearKnowledge(); return sendJson(res, 200, { ok: true }); }
+  if (url === '/api/knowledge/remove' && req.method === 'POST') {
+    const body = await readBody(req);
+    return sendJson(res, 200, { ok: removeKnowledge(body.id) });
+  }
+  // Импорт текстового Roblox-плейса (.rbxlx/.rbxmx — это XML): извлекаем дерево
+  // класс/имя и записываем компактную сводку в память. Бинарные .rbxl/.rbxm так
+  // не читаются — для них используйте capture_place при подключённом мосте.
+  if (url === '/api/knowledge/import' && req.method === 'POST') {
+    const body = await readBody(req);
+    const text = String(body.content || '');
+    const name = String(body.name || 'плейс');
+    if (!text.trim()) return sendJson(res, 400, { error: 'Пустой файл' });
+    // Грубый разбор XML: считаем классы и собираем верхнеуровневые имена.
+    const classes = {};
+    for (const m of text.matchAll(/<Item\s+class="([^"]+)"/g)) classes[m[1]] = (classes[m[1]] || 0) + 1;
+    const names = [...text.matchAll(/<string name="Name">([^<]+)<\/string>/g)].slice(0, 40).map((m) => m[1]);
+    const top = Object.entries(classes).sort((a, b) => b[1] - a[1]).slice(0, 18).map(([c, n]) => `${c}×${n}`);
+    if (!top.length) return sendJson(res, 400, { error: 'Не похоже на XML-плейс (.rbxlx/.rbxmx). Бинарные .rbxl читаются только через capture_place.' });
+    const summary = `Плейс «${name}»: ${top.join(', ')}. Объекты: ${[...new Set(names)].slice(0, 30).join(', ')}.`;
+    const item = addKnowledge(summary, { tags: ['map', name], source: 'import' });
+    return sendJson(res, 200, { ok: true, item });
   }
 
   // ── Лимиты провайдера (rate limits) ──

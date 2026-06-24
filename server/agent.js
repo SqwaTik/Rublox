@@ -13,6 +13,7 @@ import { waitForAnswer } from './asks.js';
 import { renderBlueprintPNG } from './png.js';
 import { codeSearch } from './code-search.js';
 import { getActiveProject } from './projects.js';
+import { addKnowledge } from './knowledge.js';
 import {
   runCommand, readFileTool, writeFileTool, editFileTool, multiEditTool, listDirTool, makeDirTool,
   deletePathTool, moveTool, copyTool, appendFileTool, readLinesTool, statTool,
@@ -148,6 +149,7 @@ const NON_STUDIO_HANDLED = new Set([
   'process_stop', 'process_list', 'git', 'launch_app', 'focus_window', 'send_keys',
   'run_code_sandbox', 'install_runtime', 'code_search',
   'use_template', 'update_plan', 'plan_build', 'ask_user', 'write_script', 'review_blueprint',
+  'remember', 'capture_place',
 ]);
 
 // САМОПРОВЕРКА при старте: каждая объявленная схема должна иметь обработчик, иначе
@@ -310,6 +312,26 @@ async function runTool(name, args, ctx = {}) {
           `изображение и отправлен тебе на проверку. Легенда (номер → зона):\n${img.legend.join('\n')}\n` +
           'Посмотри на схему: оцени компоновку, пропорции и масштаб. При проблемах переделай plan_build.',
       };
+    }
+    case 'remember': {
+      // Самообучение: агент записывает вывод в долговременную память.
+      try {
+        const item = addKnowledge(args.text, { tags: args.tags || [], source: 'agent' });
+        return `Запомнил: «${item.text}»`;
+      } catch (e) { return `Не удалось запомнить: ${e.message}`; }
+    }
+    case 'capture_place': {
+      // Снимок открытого плейса → в память (структура дерева). Только при Studio.
+      if (!bridge.isConnected()) return 'Studio не подключён — нечего снимать. Подключите мост в плагине.';
+      let tree;
+      try { tree = await bridge.dispatch('get_studio_context', { depth: Number(args.depth) || 3 }); }
+      catch (e) { return `Не удалось получить структуру плейса: ${e.message}`; }
+      const place = (bridge.studioInfo && bridge.studioInfo.placeName) || 'плейс';
+      const summary = `Карта «${place}»` + (args.note ? ` (${args.note})` : '') + ':\n' + trimResult(resultToString(tree), 'capture_place').slice(0, 2000);
+      try {
+        addKnowledge(summary, { tags: ['map', place], source: 'capture' });
+      } catch (e) { return `Снимок получен, но не сохранён: ${e.message}`; }
+      return `Снял слепок плейса «${place}» и записал в память. В дальнейшем смогу опираться на его устройство.`;
     }
     case 'write_script': {
       // Создать/заменить скрипт в Studio. Удобная обёртка: при подключённом

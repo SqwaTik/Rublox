@@ -1578,6 +1578,34 @@ export const TOOLS = [
       required: ['language', 'code'],
     },
   },
+  {
+    name: 'remember',
+    description: 'Сохранить ВЫВОД из опыта в долговременную память (общую для всех чатов): ' +
+      'рабочий приём, устройство конкретной механики/карты, частую грабли и как её избежать. ' +
+      'Используй, когда понял что-то полезное на будущее — чтобы в следующий раз сделать сразу ' +
+      'и правильно. Пиши кратко (1–3 предложения), по делу, без воды.',
+    parameters: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'Само знание: краткий полезный факт/приём/правило.' },
+        tags: { type: 'array', items: { type: 'string' }, description: 'Метки для группировки (напр. ["физика","машина"]).' },
+      },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'capture_place',
+    description: 'Снять «слепок» текущего открытого плейса (структура дерева + ключевые объекты) ' +
+      'и записать его в память, чтобы запомнить, как устроена карта/механика. Полезно, когда ' +
+      'пользователь подключил мост и просит изучить место. Работает только при подключённом Studio.',
+    parameters: {
+      type: 'object',
+      properties: {
+        depth: { type: 'number', description: 'Глубина обхода дерева (по умолчанию 3).' },
+        note: { type: 'string', description: 'Короткая пометка, что именно изучаем (необязательно).' },
+      },
+    },
+  },
 ];
 
 // Веб-инструменты доступны ВСЕГДА (и в режиме Studio, и в режиме ПК).
@@ -1598,10 +1626,10 @@ export const PC_TOOLS = new Set([
 ]);
 
 // Инструменты со спец-логикой в agent.js (не чистый проброс).
-export const SPECIAL_TOOLS = new Set(['use_template', 'update_plan', 'plan_build', 'ask_user', 'review_blueprint']);
+export const SPECIAL_TOOLS = new Set(['use_template', 'update_plan', 'plan_build', 'ask_user', 'review_blueprint', 'remember', 'capture_place']);
 
-// Инструменты, доступные ВСЕГДА (в любом режиме): планирование, генплан, вопрос.
-export const ALWAYS_TOOLS = new Set(['update_plan', 'plan_build', 'ask_user', 'review_blueprint']);
+// Инструменты, доступные ВСЕГДА (в любом режиме): планирование, генплан, вопрос, память.
+export const ALWAYS_TOOLS = new Set(['update_plan', 'plan_build', 'ask_user', 'review_blueprint', 'remember']);
 
 // Имена всех объявленных инструментов.
 export const TOOL_NAMES = TOOLS.map((t) => t.name);
