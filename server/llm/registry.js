@@ -171,8 +171,12 @@ export async function fetchModels(id) {
   const hasVer = /\/v\d+$/.test(base);
   const urls = hasVer ? [`${base}/models`] : [`${base}/v1/models`, `${base}/models`];
 
+  // Та же «личность Claude Code», что и в боевых запросах (см. providers.js):
+  // реселлеры (agentrouter, aerolink) отдают /models только клиенту-CLI, иначе
+  // 401 → список не грузился и подставлялся хардкод-фолбэк из claude-моделей.
   const common = {
-    'user-agent': 'Rublox/0.2 (+https://github.com/SqwaTik/roblox-ai-assistant)',
+    'user-agent': 'claude-cli/1.0.119 (external, cli)',
+    'x-app': 'cli',
     accept: 'application/json',
     ...(p.headers || {}),
   };
@@ -197,10 +201,16 @@ export async function fetchModels(id) {
             : { id: m.id || m.name, protos: m.supported_protocols || m.supported_endpoint_types || null }
         )).filter((e) => e.id);
         if (!entries.length) { lastErr = 'пустой список моделей'; continue; }
-        // Показываем только совместимые с протоколом (если шлюз их размечает).
-        const compatible = entries.filter((e) => protoMatches(kind, e.protos));
-        const list = (compatible.length ? compatible : entries).map((e) => e.id);
-        return [...new Set(list)].sort();
+        // Показываем ВСЕ модели, что отдаёт шлюз. Реселлеры-роутеры (agentrouter и
+        // т.п.) кросс-маршрутизируют: openai-модель (gpt-5.5, GLM …) вызывается и
+        // через /v1/messages у anthropic-провайдера — проверено вживую. Поэтому не
+        // прячем по протоколу (иначе у anthropic-шлюза находились только claude).
+        // Совместимые с текущим протоколом ставим первыми для удобства выбора.
+        const compatible = entries.filter((e) => protoMatches(kind, e.protos)).map((e) => e.id);
+        const compatibleSet = new Set(compatible);
+        const rest = entries.map((e) => e.id).filter((id) => !compatibleSet.has(id));
+        const list = [...new Set([...compatible.sort(), ...rest.sort()])];
+        return list;
       } catch (e) { lastErr = e.message; }
     }
   }

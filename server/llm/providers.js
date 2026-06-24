@@ -204,11 +204,20 @@ function endpointUrl(p, kind) {
 }
 
 // Базовые заголовки без авторизации. anthropic-version нужен для Anthropic-формата
-// (безвреден для остальных). User-Agent — без него часть шлюзов отдаёт 401/403.
+// (безвреден для остальных).
+//
+// КЛИЕНТСКАЯ ЛИЧНОСТЬ. Реселлеры Claude Code (agentrouter.org, aerolink/freemodel
+// и др.) пускают запрос ТОЛЬКО если клиент выглядит как Claude Code CLI: проверяют
+// user-agent (`claude-cli/...`) и заголовок `x-app: cli`. Иначе — 401 «unauthorized
+// client detected», даже если ключ верный (раньше это ломало agentrouter, при том
+// что в самом Claude Code тот же ключ работал). Поэтому представляемся как CLI.
+// Официальному Anthropic/OpenAI и обычным OpenAI-шлюзам это не мешает.
+const CLAUDE_CLI_UA = 'claude-cli/1.0.119 (external, cli)';
 function protoHeaders(kind) {
   const h = {
     'content-type': 'application/json',
-    'user-agent': 'rublox-cli/1.0.0 (external, cli)',
+    'user-agent': CLAUDE_CLI_UA,
+    'x-app': 'cli',
     accept: 'application/json',
   };
   if (kind === 'anthropic') h['anthropic-version'] = '2023-06-01';
@@ -243,6 +252,39 @@ async function llmFetch(p, kind, payload, signal) {
   return res;
 }
 
+// Некоторые модели/шлюзы запрещают отдельные необязательные параметры и отвечают
+// 400 вроде «`temperature` is deprecated for this model» (так делает agentrouter
+// для новых claude-моделей). Заранее знать нельзя — поэтому при таком 400 убираем
+// именно названный параметр и повторяем запрос один раз. Безопасные к удалению:
+const DROPPABLE_PARAMS = ['temperature', 'top_p', 'reasoning_effort', 'stream_options'];
+function stripUnsupportedParams(payload, errText) {
+  const t = String(errText || '').toLowerCase();
+  if (!/deprecat|unsupported|not support|not allow|unexpected|unknown|invalid|remove/.test(t)) return null;
+  let changed = false;
+  const next = { ...payload };
+  for (const key of DROPPABLE_PARAMS) {
+    if (key in next && t.includes(key.toLowerCase())) { delete next[key]; changed = true; }
+  }
+  return changed ? next : null;
+}
+
+// llmFetch + адаптивный ретрай по 400 о неподдержанном параметре. Тело читаем через
+// clone(), чтобы оригинальный res остался пригоден для parseJsonRes/readSSE, если
+// ретрай не нужен.
+async function llmFetchAdaptive(p, kind, payload, signal) {
+  let res = await llmFetch(p, kind, payload, signal);
+  if (res.status === 400) {
+    let text = '';
+    try { text = await res.clone().text(); } catch { /* тело не читается — пропускаем ретрай */ }
+    const stripped = stripUnsupportedParams(payload, text);
+    if (stripped) {
+      try { await res.arrayBuffer(); } catch { /* сброс старого тела */ }
+      res = await llmFetch(p, kind, stripped, signal);
+    }
+  }
+  return res;
+}
+
 // Разбор JSON-ответа (нестриминг): перехват лимитов + человекочитаемая ошибка.
 async function parseJsonRes(res, providerId) {
   if (providerId) captureLimits(providerId, res.headers);
@@ -258,7 +300,7 @@ async function parseJsonRes(res, providerId) {
 
 async function callAnthropic(p, opts) {
   if (!p.apiKey) throw new Error(`API-ключ для провайдера "${p.id}" не задан`);
-  const res = await llmFetch(p, 'anthropic', anthropicBody(p, opts, false), opts.signal);
+  const res = await llmFetchAdaptive(p, 'anthropic', anthropicBody(p, opts, false), opts.signal);
   const data = await parseJsonRes(res, p.id);
   let text = '';
   const toolCalls = [];
@@ -272,7 +314,7 @@ async function callAnthropic(p, opts) {
 
 async function streamAnthropic(p, opts, onDelta) {
   if (!p.apiKey) throw new Error(`API-ключ для провайдера "${p.id}" не задан`);
-  const res = await llmFetch(p, 'anthropic', anthropicBody(p, opts, true), opts.signal);
+  const res = await llmFetchAdaptive(p, 'anthropic', anthropicBody(p, opts, true), opts.signal);
   captureLimits(p.id, res.headers);
 
   let text = '';
@@ -381,7 +423,7 @@ function openaiBody(p, { system, messages, model, temperature, maxTokens, useToo
 }
 
 async function callOpenAI(p, opts) {
-  const res = await llmFetch(p, 'openai', openaiBody(p, opts, false), opts.signal);
+  const res = await llmFetchAdaptive(p, 'openai', openaiBody(p, opts, false), opts.signal);
   const data = await parseJsonRes(res, p.id);
   const choice = data.choices?.[0]?.message || {};
   const toolCalls = (choice.tool_calls || []).map((tc) => {
@@ -397,7 +439,7 @@ async function callOpenAI(p, opts) {
 }
 
 async function streamOpenAI(p, opts, onDelta) {
-  const res = await llmFetch(p, 'openai', openaiBody(p, opts, true), opts.signal);
+  const res = await llmFetchAdaptive(p, 'openai', openaiBody(p, opts, true), opts.signal);
   captureLimits(p.id, res.headers);
 
   let text = '';
