@@ -127,4 +127,36 @@ async function checkForUpdates({ silent = true, win = null } = {}) {
   }
 }
 
-module.exports = { checkForUpdates };
+// Неблокирующая установка: качаем .exe из latest-релиза и запускаем тихо (/S),
+// приложение перезапустится. Без модальных диалогов — вызывается с фронта
+// (кнопка «Обновить» в баннере) через /api/update/apply. Прогресс шлём в окно.
+async function applyUpdate({ win = null } = {}) {
+  const target = win || BrowserWindow.getAllWindows()[0] || null;
+  const notify = (stage, pct) => { try { target && target.webContents.send('update-progress', { stage, pct }); } catch { /* окно закрыто */ } };
+  try {
+    notify('check');
+    const rel = await getJson(`https://api.github.com/repos/${REPO}/releases/latest`);
+    const assets = rel.assets || [];
+    const exe = assets.find((a) => /\.exe$/i.test(a.name) && /setup/i.test(a.name))
+      || assets.find((a) => /\.exe$/i.test(a.name));
+    if (!exe) { shell.openExternal(rel.html_url || `https://github.com/${REPO}/releases/latest`); return; }
+    notify('download', 0);
+    const dest = path.join(os.tmpdir(), exe.name);
+    await download(exe.browser_download_url, dest);
+    notify('install');
+    try {
+      const child = spawn(dest, ['/S', '--force-run'], { detached: true, stdio: 'ignore' });
+      child.unref();
+    } catch { shell.openPath(dest); }
+    setTimeout(() => app.exit(0), 600);
+  } catch (e) {
+    notify('error');
+    throw e;
+  }
+}
+
+// BrowserWindow нужен только в applyUpdate; берём лениво, чтобы не падать в тестах.
+let BrowserWindow = null;
+try { ({ BrowserWindow } = require('electron')); } catch { /* не electron — ok */ }
+
+module.exports = { checkForUpdates, applyUpdate };

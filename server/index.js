@@ -25,6 +25,7 @@ import {
   listProjects, getActiveProject, setActiveProject, createProject, updateProject, deleteProject,
 } from './projects.js';
 import { getUsage, addSpent, getSpentTotal } from './usage.js';
+import { getUpdateInfo } from './update.js';
 import { resolveAsk, hasPendingAsk } from './asks.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -212,6 +213,21 @@ async function handleAppApi(req, res, url) {
   if (url === '/api/pc-agent' && req.method === 'POST') {
     const body = await readBody(req);
     return sendJson(res, 200, { enabled: setPcAgent(body.enabled) });
+  }
+
+  // ── Обновления приложения ──
+  if (url === '/api/update/info' && req.method === 'GET') {
+    const force = /[?&]force=1/.test(req.url);
+    return sendJson(res, 200, await getUpdateInfo({ force }));
+  }
+  // Запуск установки: доступен только в десктопе (Electron подкладывает хук).
+  if (url === '/api/update/apply' && req.method === 'POST') {
+    const u = globalThis.__rubloxUpdater;
+    if (u && typeof u.applyUpdate === 'function') {
+      u.applyUpdate().catch((e) => console.warn('applyUpdate:', e && e.message));
+      return sendJson(res, 200, { started: true });
+    }
+    return sendJson(res, 200, { started: false, reason: 'not-desktop' });
   }
 
   // ── Лимиты провайдера (rate limits) ──

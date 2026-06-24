@@ -338,6 +338,72 @@ function showToast(text, kind) {
   setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 260); }, 2200);
 }
 
+// ── Верхние уведомления с очередью (обновить прогу/плагин и т.п.) ──────
+// Несколько уведомлений показываются как ОДНА плашка по центру сверху; если их
+// больше одного — справа-сверху бейдж «+N» (сколько ещё в очереди), клик по нему
+// листает. Каждое уведомление можно закрыть. Дедуп по id (повторный push обновляет).
+let notices = [];
+let noticeIdx = 0;
+
+function pushNotice(n) {
+  if (!n || !n.id) return;
+  const i = notices.findIndex((x) => x.id === n.id);
+  if (i >= 0) notices[i] = { ...notices[i], ...n };
+  else notices.push(n);
+  renderNoticeBar();
+}
+function dismissNotice(id) {
+  notices = notices.filter((x) => x.id !== id);
+  if (noticeIdx >= notices.length) noticeIdx = Math.max(0, notices.length - 1);
+  renderNoticeBar();
+}
+function renderNoticeBar() {
+  const bar = $('noticeBar');
+  if (!bar) return;
+  if (!notices.length) { bar.classList.add('hidden'); bar.innerHTML = ''; return; }
+  if (noticeIdx >= notices.length) noticeIdx = 0;
+  const n = notices[noticeIdx];
+  const esc = (s) => String(s || '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+  const more = notices.length - 1;
+  const icon = n.icon || (window.ICON && window.ICON.download) || '';
+  bar.className = 'notice-bar notice-' + (n.kind || 'info');
+  bar.innerHTML =
+    (more > 0 ? `<button class="notice-queue" id="noticeQueue" title="${window.t('noticeMore') || 'Ещё уведомления'}">+${more}</button>` : '') +
+    `<span class="notice-ic">${icon}</span>` +
+    `<span class="notice-text">${esc(n.text)}</span>` +
+    (n.actionLabel ? `<button class="notice-act" id="noticeAct">${esc(n.actionLabel)}</button>` : '') +
+    `<button class="notice-x" id="noticeClose" title="${window.t('close') || 'Закрыть'}">${(window.ICON && window.ICON.close) || '×'}</button>`;
+  bar.classList.remove('hidden');
+  const act = $('noticeAct');
+  if (act) act.onclick = () => { const fn = n.onAction; if (fn) fn(n); };
+  const close = $('noticeClose');
+  if (close) close.onclick = () => { if (n.onDismiss) n.onDismiss(n); dismissNotice(n.id); };
+  const q = $('noticeQueue');
+  if (q) q.onclick = () => { noticeIdx = (noticeIdx + 1) % notices.length; renderNoticeBar(); };
+}
+
+// Проверка обновления приложения: тихо спрашиваем сервер и при наличии новой
+// версии показываем верхний баннер. Кнопка «Обновить» в десктопе запускает
+// установку, в браузере — открывает страницу релиза.
+async function checkAppUpdate() {
+  const info = await fetch('/api/update/info').then((r) => r.json()).catch(() => null);
+  if (!info || !info.hasUpdate) return;
+  pushNotice({
+    id: 'app-update', kind: 'update', icon: (window.ICON && window.ICON.download) || '',
+    text: (window.t('updateAvailable') || 'Доступно обновление') + ` — v${info.latest}`,
+    actionLabel: window.t('updateNow') || 'Обновить',
+    onAction: async () => {
+      if (window.rublox) {
+        const r = await fetch('/api/update/apply', { method: 'POST' }).then((r) => r.json()).catch(() => null);
+        if (r && r.started) showToast(window.t('updateDownloading') || 'Загрузка обновления…', 'ok');
+        else window.open(info.url, '_blank');
+      } else {
+        window.open(info.url, '_blank');
+      }
+    },
+  });
+}
+
 // Инлайн-заметка по центру, без пузыря (напр. «Остановлено»).
 function addInlineNotice(text) {
   const el = document.createElement('div');
@@ -396,6 +462,9 @@ function renderPlan(steps) {
   steps = Array.isArray(steps) ? steps : [];
   const bar = $('planbar');
   if (!bar) return;
+  // Запоминаем план для этого чата — чтобы он не пропадал при переключении чатов
+  // и после Стоп (восстанавливается в switchChat).
+  if (activeChat) { if (steps.length) planByChat[activeChat] = steps; else delete planByChat[activeChat]; }
   const esc = (s) => String(s || '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
   const total = steps.length;
   if (total === 0) { bar.classList.add('hidden'); planEl = null; return; }
@@ -429,11 +498,23 @@ function renderPlan(steps) {
   planEl = bar;
   scrollDown();
 }
-// Спрятать закреплённый план (новый чат / новая отправка).
-function clearPlan() {
+// Сохранённые планы по чатам (липкий план: переживает переключение чатов и Стоп).
+const planByChat = {};
+
+// Спрятать закреплённый план (новый чат / новая отправка). forget=true — забыть
+// план чата совсем (новая задача), иначе только убрать с экрана.
+function clearPlan(forget = true) {
   const bar = $('planbar');
   if (bar) { bar.classList.add('hidden'); bar.innerHTML = ''; }
   planEl = null; planCollapsed = false;
+  if (forget && activeChat) delete planByChat[activeChat];
+}
+
+// Восстановить закреплённый план для чата (при открытии чата).
+function restorePlan(id) {
+  const steps = planByChat[id];
+  if (steps && steps.length) renderPlan(steps);
+  else clearPlan(false);
 }
 
 // Генплан постройки — чистая схема вида сверху (SVG) + нумерованная легенда сбоку.
@@ -920,7 +1001,7 @@ async function switchChat(id) {
   activeChat = id;
   chat.innerHTML = '';
   streamEl = null;
-  clearPlan();
+  restorePlan(id); // не теряем закреплённый план чата
   // Загружаем историю с сервера — она хранится на диске.
   const r = await fetch('/api/chats/messages', {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -1662,6 +1743,7 @@ async function init() {
   renderUsageRing(); // нарисовать пустое кольцо сразу
   loadUsage();
   loadProjects();
+  checkAppUpdate(); // тихая проверка обновления приложения → баннер сверху
   // Кнопки окна (свернуть/развернуть/закрыть) нужны только в десктоп-приложении
   // (Electron). В обычном браузере их прячем — там окном управляет сам браузер.
   if (!window.rublox) document.body.classList.add('in-browser');

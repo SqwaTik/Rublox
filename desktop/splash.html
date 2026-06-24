@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<style>
+  :root { --accent: #ff3b4e; --accent2: #b00d22; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: transparent; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Segoe UI', system-ui, sans-serif; color: #fff; user-select: none;
+  }
+  .card {
+    width: 380px; height: 260px; border-radius: 18px; position: relative;
+    background: radial-gradient(120% 120% at 50% 0%, #1a0f12 0%, #0c0708 70%);
+    border: 1px solid rgba(255,255,255,.08);
+    box-shadow: 0 24px 60px rgba(0,0,0,.55);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 22px; overflow: hidden;
+    animation: pop .4s cubic-bezier(.22,1,.36,1);
+  }
+  @keyframes pop { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: none; } }
+  /* мягкое свечение сверху */
+  .glow { position: absolute; top: -60px; left: 50%; transform: translateX(-50%);
+    width: 240px; height: 240px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,59,78,.30), transparent 65%);
+    filter: blur(8px); animation: breathe 3s ease-in-out infinite; }
+  @keyframes breathe { 0%,100% { opacity: .5; } 50% { opacity: 1; } }
+  .logo {
+    width: 72px; height: 72px; border-radius: 20px; position: relative;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    box-shadow: 0 10px 30px rgba(224,16,48,.45);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 34px; font-weight: 800; letter-spacing: -1px;
+    animation: float 2.4s ease-in-out infinite;
+  }
+  @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+  .ring { position: absolute; inset: -8px; border-radius: 24px;
+    border: 2px solid transparent; border-top-color: rgba(255,255,255,.85);
+    animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .title { font-size: 19px; font-weight: 700; letter-spacing: .5px; }
+  .stage { font-size: 12.5px; color: rgba(255,255,255,.55); height: 16px;
+    transition: opacity .3s ease; min-width: 200px; text-align: center; }
+  .bar { width: 220px; height: 4px; border-radius: 4px; background: rgba(255,255,255,.10); overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 30%; border-radius: 4px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    animation: slide 1.4s ease-in-out infinite; }
+  @keyframes slide { 0% { margin-left: -35%; width: 35%; } 50% { width: 60%; } 100% { margin-left: 100%; width: 35%; } }
+  .wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="glow"></div>
+    <div class="logo">R<div class="ring"></div></div>
+    <div class="wrap">
+      <div class="title">Rublox</div>
+      <div class="stage" id="stage">Запуск…</div>
+      <div class="bar"><i></i></div>
+    </div>
+  </div>
+  <script>
+    // Сменяем этапы по таймеру (даже без сигналов извне выглядит «живо»).
+    const stages = ['Запуск сервера…', 'Проверка файлов…', 'Проверка обновлений…', 'Почти готово…'];
+    let i = 0;
+    const el = document.getElementById('stage');
+    el.textContent = stages[0];
+    setInterval(() => { i = (i + 1) % stages.length; el.style.opacity = 0;
+      setTimeout(() => { el.textContent = stages[i]; el.style.opacity = 1; }, 200); }, 1100);
+    // Главный процесс может прислать точный этап.
+    try {
+      require('electron').ipcRenderer.on('splash-stage', (_e, t) => { el.style.opacity = 0;
+        setTimeout(() => { el.textContent = t; el.style.opacity = 1; }, 150); });
+    } catch (e) {}
+  </script>
+</body>
+</html>

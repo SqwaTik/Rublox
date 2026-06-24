@@ -10,7 +10,10 @@ const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain } = require(
 const { join } = require('node:path');
 const http = require('node:http');
 const { pathToFileURL } = require('node:url');
-const { checkForUpdates } = require('./updater.cjs');
+const updater = require('./updater.cjs');
+const { checkForUpdates } = updater;
+// Хук для серверного эндпоинта /api/update/apply (кнопка «Обновить» в баннере).
+globalThis.__rubloxUpdater = updater;
 
 const rootDir = join(__dirname, '..');
 const PORT = process.env.PORT || 8787;
@@ -18,8 +21,28 @@ const APP_URL = `http://localhost:${PORT}`;
 const ICON = join(__dirname, 'assets', 'icon.png');
 
 let win = null;
+let splash = null;
 let tray = null;
 let isQuiting = false;
+
+// Глобальные перехватчики: не даём фоновым сбоям (сеть, сторонние модули)
+// «всплывать» окном ошибки при запуске — логируем и продолжаем.
+process.on('uncaughtException', (e) => console.error('uncaughtException:', e && e.message));
+process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e && (e.message || e)));
+
+// Сплеш-окно с анимацией — показываем сразу, пока поднимается сервер.
+function createSplash() {
+  try {
+    splash = new BrowserWindow({
+      width: 380, height: 260, frame: false, transparent: true, resizable: false,
+      alwaysOnTop: true, center: true, skipTaskbar: true, backgroundColor: '#00000000',
+      webPreferences: { nodeIntegration: true, contextIsolation: false },
+    });
+    splash.loadFile(join(__dirname, 'splash.html'));
+  } catch (e) { console.error('splash:', e && e.message); splash = null; }
+}
+function splashStage(text) { try { splash && splash.webContents.send('splash-stage', text); } catch { /* закрыт */ } }
+function closeSplash() { try { if (splash && !splash.isDestroyed()) splash.close(); } catch { /* ok */ } splash = null; }
 
 // Запуск сервера в текущем процессе.
 async function startServer() {
@@ -69,12 +92,19 @@ function createWindow() {
     title: 'Rublox', backgroundColor: '#0c0708',
     frame: false, // кастомный титлбар
     icon: ICON,
+    show: false, // показываем только когда контент готов (через ready-to-show)
     webPreferences: {
       contextIsolation: true, nodeIntegration: false,
       preload: join(__dirname, 'preload.cjs'),
     },
   });
   win.loadURL(APP_URL);
+  // Плавная передача: окно появляется готовым, затем гасим сплеш.
+  win.once('ready-to-show', () => { win.show(); closeSplash(); });
+  // Если страница не загрузилась (сервер ещё не готов) — повторяем загрузку.
+  win.webContents.on('did-fail-load', () => {
+    setTimeout(() => { try { win && win.loadURL(APP_URL); } catch { /* ok */ } }, 500);
+  });
   win.on('close', (e) => {
     if (!isQuiting) { e.preventDefault(); win.hide(); }
   });
@@ -111,18 +141,25 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
-    await startServer();
-    await waitServer();
+    createSplash();
+    splashStage('Запуск сервера…');
+    try {
+      await startServer();
+      splashStage('Проверка файлов…');
+      await waitServer();
+    } catch (e) {
+      console.error('startup error:', e && e.message);
+    }
+    splashStage('Почти готово…');
     createWindow();
     createTray();
-    // Тихая проверка обновлений при старте (только в упакованном приложении).
-    if (app.isPackaged) {
-      setTimeout(() => checkForUpdates({ silent: true, win }).catch(() => {}), 4000);
-    }
+    // Обновления больше НЕ проверяем модальным диалогом при старте (это лагало).
+    // Проверку делает сам веб-интерфейс через /api/update/info и показывает
+    // ненавязчивый баннер сверху. Ручная проверка — в меню трея.
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
-  });
+  }).catch((e) => console.error('whenReady error:', e && e.message));
 }
 
 // Живём в трее — не выходим при закрытии окон.
