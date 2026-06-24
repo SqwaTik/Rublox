@@ -33,11 +33,19 @@ function loadEnvFile() {
 
 loadEnvFile();
 
+// Версия приложения — единый источник правды package.json (а не хардкод в UI).
+function readPkgVersion() {
+  try {
+    return JSON.parse(readFileSync(join(rootDir, 'package.json'), 'utf8')).version || '0.0.0';
+  } catch { return '0.0.0'; }
+}
+
 const bool = (v, def) => (v == null ? def : /^(1|true|yes|on)$/i.test(v));
 const num = (v, def) => (v == null || v === '' ? def : Number(v));
 
 export const config = {
   rootDir,
+  version: readPkgVersion(),
   // Каталог для записи (сессии, пользовательские провайдеры, сборка плагина).
   // В упакованном Electron переопределяется на userData через env.
   dataDir: process.env.ROBLOX_AI_DATA_DIR || rootDir,

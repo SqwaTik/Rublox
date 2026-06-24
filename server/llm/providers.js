@@ -24,10 +24,31 @@ import { captureLimits } from '../usage.js';
 function explainHttpError(status, rawMsg) {
   const raw = String(rawMsg || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
   const short = raw.length > 300 ? raw.slice(0, 300) + '…' : raw;
+  const low = raw.toLowerCase();
+
+  // Реальная причина важнее кода. Провайдеры часто шлют 401/402/403/429 при
+  // ИСЧЕРПАННОМ БАЛАНСЕ — а текст «ключ не подходит» вводит в заблуждение. Сначала
+  // смотрим в сам текст ошибки и определяем причину по ключевым словам.
+  const has = (re) => re.test(low);
+  if (has(/insufficient.*(balance|credit|fund|quota)|no.*(balance|credit)|out of (credit|quota)|balance.*(low|exhaust|insufficient)|недостаточно средств|баланс|закончил|нет средств|пополните|top.?up|payment required|billing|recharge/)) {
+    return `LLM HTTP ${status}: закончился баланс/кредиты у провайдера. Пополните счёт или смените провайдера.` +
+      (short ? ` (${short})` : '');
+  }
+  if (has(/rate.?limit|too many request|quota.*(exceed|exhaust)|превышен лимит/)) {
+    return `LLM HTTP ${status}: превышен лимит запросов. Подождите или смените провайдера.` + (short ? ` (${short})` : '');
+  }
+  if (has(/invalid.*api.?key|incorrect api key|unauthorized client|invalid token|неверный ключ|api key not valid/)) {
+    return `LLM HTTP ${status}: ключ отклонён провайдером. Проверьте API-ключ в Настройках → Провайдеры.` + (short ? ` (${short})` : '');
+  }
+  if (has(/model.*(not found|not exist|unavailable|not support|decommission)|no such model|unknown model|нет модели|модель не/)) {
+    return `LLM HTTP ${status}: модель недоступна у провайдера. Проверьте имя модели или смените её.` + (short ? ` (${short})` : '');
+  }
+
   const hint = {
     400: 'неверный запрос к модели (возможно, модель не поддерживает инструменты или формат истории).',
     401: 'провайдер отклонил ключ (401). Проверьте API-ключ в Настройках → Провайдеры.',
-    403: 'провайдер запретил доступ (403). Ключ не подходит для этой модели, либо модель/регион недоступны у этого провайдера. Попробуйте другую модель или провайдера.',
+    402: 'требуется оплата (402). Вероятно, закончился баланс у провайдера.',
+    403: 'доступ запрещён (403). Возможные причины: исчерпан баланс, ключ не подходит для этой модели, либо модель/регион недоступны.',
     404: 'модель не найдена у провайдера (404). Проверьте имя модели.',
     413: 'слишком большой запрос (413). Сократите историю — /compact.',
     429: 'превышен лимит запросов (429). Подождите или смените провайдера.',
@@ -37,7 +58,8 @@ function explainHttpError(status, rawMsg) {
   }[status];
   let msg = `LLM HTTP ${status}`;
   if (hint) msg += `: ${hint}`;
-  if (short && !hint) msg += `: ${short}`;
+  // Реальный текст провайдера всегда полезен — добавляем его, даже если есть hint.
+  if (short) msg += hint ? ` (${short})` : `: ${short}`;
   return msg;
 }
 

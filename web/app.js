@@ -15,6 +15,7 @@ let streamEl = null;
 let activeChat = 'default';
 let chatOpened = false; // открыли ли уже первый чат при старте
 let myCid = null; // id этого клиента (для реалтайм-синхронизации между окнами)
+let appVersion = ''; // версия приложения (из package.json через hello)
 let providers = [];
 let templates = [];
 let chats = [];
@@ -120,7 +121,13 @@ function onMessage(m) {
       break;
     case 'session': applySession(m.info); break;
     case 'usage': lastUsage = m.usage || { available: false }; renderUsageRing(); break;
-    case 'hello': myCid = m.cid; break;
+    case 'hello':
+      myCid = m.cid;
+      if (m.version) {
+        appVersion = m.version;
+        document.querySelectorAll('.about-ver').forEach((el) => { el.textContent = 'v' + m.version; });
+      }
+      break;
     case 'user':
       // Сообщение из ДРУГОГО клиента (десктоп/браузер) — показываем в реалтайме.
       // Своё (origin === myCid) уже отрисовано оптимистично — пропускаем.

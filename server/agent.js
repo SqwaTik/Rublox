@@ -479,8 +479,18 @@ function statusFor(name, args) {
 function resultToString(result) {
   if (result == null) return 'ok';
   if (typeof result === 'string') return result;
+  // Массив простых значений (строки/числа) — отдаём построчно, а не сырым JSON.
+  // Так вывод консоли Studio (get_console_output) и подобные списки читаются
+  // по-человечески: «Remotes готовы: 10\n…\ncleared: World_Base», а не
+  // ["...","...","..."]. Пустой массив — явная пометка вместо «[]».
+  if (Array.isArray(result)) {
+    if (!result.length) return '(пусто)';
+    if (result.every((x) => typeof x === 'string' || typeof x === 'number')) {
+      return result.map((x) => String(x)).join('\n');
+    }
+  }
   try {
-    return JSON.stringify(result);
+    return JSON.stringify(result, null, 2);
   } catch {
     return String(result);
   }

@@ -629,3 +629,86 @@ game:GetService("TeleportService")      -- телепорт между мест�
 game:GetService("MarketplaceService")   -- покупки, gamepass, проверка владения
 game:GetService("HttpService")          -- внешние запросы и JSONEncode/Decode
 ```
+
+## VehicleSeat и транспорт
+
+```lua
+-- VehicleSeat — сиденье, которое РУЛИТ ассамблеей (машиной). Когда игрок садится,
+-- его управление (W/S → Throttle, A/D → Steer) автоматически идёт в свойства сиденья.
+local seat = Instance.new("VehicleSeat")
+seat.Size = Vector3.new(4, 1, 4)
+seat.MaxSpeed = 60            -- макс. скорость для авто-моторов
+seat.Torque = 12000          -- крутящий момент авто-моторов
+seat.TurnSpeed = 30          -- скорость поворота
+seat.Parent = carModel
+-- Сиденье читается на сервере:
+seat.Throttle  -- -1..1 (газ/назад), seat.Steer -- -1..1 (руль), seat.Occupant -- Humanoid или nil
+
+-- Привод колёс через HingeConstraint в режиме Motor, скорость зависит от Throttle/Steer:
+local function setupWheel(wheel, attachBody, attachWheel)
+	local hinge = Instance.new("HingeConstraint")
+	hinge.Attachment0 = attachBody
+	hinge.Attachment1 = attachWheel
+	hinge.ActuatorType = Enum.ActuatorType.Motor
+	hinge.MotorMaxTorque = seat.Torque
+	hinge.Parent = wheel
+	return hinge
+end
+-- В RunService.Heartbeat обновляй hinge.AngularVelocity = seat.Throttle * seat.MaxSpeed.
+-- Сиденье и кузов соединяй WeldConstraint; колёса крепи HingeConstraint'ами (см. ниже).
+-- Seat (обычное) — то же, но НЕ управляет транспортом, только сажает персонажа:
+--   seat.Occupant, seat:Sit(humanoid). Прыжок с сиденья — Humanoid.Jump = true.
+```
+
+## Полная физика (движение, силы, свойства)
+
+```lua
+-- СОВРЕМЕННЫЙ способ задавать движение — через скорость/импульс ассамблеи
+-- (BodyMovers — BodyVelocity/BodyForce/BodyPosition/BodyGyro — УСТАРЕЛИ, не используй):
+part.AssemblyLinearVelocity  = Vector3.new(0, 50, 0)   -- мгновенная линейная скорость
+part.AssemblyAngularVelocity = Vector3.new(0, 10, 0)   -- вращение
+part:ApplyImpulse(Vector3.new(0, mass * 50, 0))        -- импульс (учитывай массу)
+part:ApplyAngularImpulse(Vector3.new(0, 500, 0))
+part.AssemblyMass                                       -- масса всей сборки (read-only)
+
+-- Постоянные силы и движение — через VectorForce/LinearVelocity/AlignPosition/AlignOrientation
+-- (это замена BodyForce/BodyVelocity/BodyPosition/BodyGyro), работают на Attachment'ах:
+local att = Instance.new("Attachment", part)
+local vf = Instance.new("VectorForce")            -- постоянная сила (напр. антигравитация)
+vf.Attachment0 = att
+vf.Force = Vector3.new(0, workspace.Gravity * part.AssemblyMass, 0)
+vf.RelativeTo = Enum.ActuatorRelativeTo.World
+vf.Parent = part
+
+local lv = Instance.new("LinearVelocity")         -- держит заданную скорость (полёт, конвейер)
+lv.Attachment0 = att
+lv.MaxForce = math.huge
+lv.VectorVelocity = Vector3.new(0, 0, -40)
+lv.Parent = part
+
+local ap = Instance.new("AlignPosition")          -- тянет к позиции (замена BodyPosition)
+ap.Attachment0 = att
+ap.Position = Vector3.new(0, 20, 0)
+ap.MaxForce, ap.Responsiveness = 50000, 30
+ap.Mode = Enum.PositionAlignmentMode.OneAttachment
+ap.Parent = part
+local ao = Instance.new("AlignOrientation")       -- держит ориентацию (замена BodyGyro)
+
+-- Свойства материала и физики части:
+part.Anchored = false            -- true = неподвижна и не падает (фундамент, стены)
+part.Massless = false            -- true = не добавляет массу в сборку
+part.CanCollide = true           -- участвует в столкновениях
+part.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.3, 0.5) -- плотность, трение, упругость
+part.AssemblyRootPart            -- корневая часть сборки
+
+-- PhysicsService — группы столкновений (что с чем сталкивается):
+local PhysicsService = game:GetService("PhysicsService")
+PhysicsService:RegisterCollisionGroup("Players")
+PhysicsService:RegisterCollisionGroup("Vehicles")
+PhysicsService:CollisionGroupSetCollidable("Players", "Vehicles", false) -- игроки сквозь машины
+part.CollisionGroup = "Vehicles"
+
+workspace.Gravity = 196.2        -- гравитация мира (по умолч. ~196.2 студов/с²)
+-- Контакты: part.Touched:Connect(fn), part:GetTouchingParts(), либо GetPartsInPart/GetPartBoundsInBox
+-- (через OverlapParams) для точных проверок без коллизий.
+```

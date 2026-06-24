@@ -249,7 +249,14 @@ end
 -- Разрешить путь вида "game.Workspace.Part" / "Workspace.Model.Part" в Instance.
 local function resolvePath(path)
 	if type(path) ~= "string" or path == "" then
-		error("path не указан")
+		-- path не задан — берём выделенный в Explorer объект (частый случай:
+		-- модель просит свойства/правку «этого» объекта без явного пути). Так
+		-- ошибка «path не указан» почти исчезает.
+		local ok, sel = pcall(function() return game:GetService("Selection"):Get() end)
+		if ok and sel and sel[1] then
+			return sel[1]
+		end
+		error("path не указан и в Studio ничего не выделено. Укажи path вида game.Workspace.Имя или выдели объект в Explorer.")
 	end
 	local parts = {}
 	for token in string.gmatch(path, "[^%.]+") do

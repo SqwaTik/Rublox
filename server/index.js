@@ -326,7 +326,7 @@ let cidSeq = 0;
 wss.on('connection', (ws) => {
   ws._cid = 'c' + (++cidSeq) + '_' + Date.now().toString(36);
   clients.add(ws);
-  ws.send(JSON.stringify({ type: 'hello', cid: ws._cid }));
+  ws.send(JSON.stringify({ type: 'hello', cid: ws._cid, version: config.version }));
   ws.send(JSON.stringify({ type: 'status', status: bridge.status() }));
   ws.send(JSON.stringify({ type: 'providers', providers: listProviders() }));
   ws.send(JSON.stringify({ type: 'chats', chats: listSessions() }));
