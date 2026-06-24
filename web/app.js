@@ -16,6 +16,45 @@ let activeChat = 'default';
 let chatOpened = false; // открыли ли уже первый чат при старте
 let myCid = null; // id этого клиента (для реалтайм-синхронизации между окнами)
 let appVersion = ''; // версия приложения (из package.json через hello)
+
+// ── Загрузочный экран на всё окно ─────────────────────────────────────
+// Идёт ~3.5с (в 2.5 раза дольше прежнего), плавно заполняя прогресс и сменяя
+// стадии, затем гаснет и разблокирует приложение. Пользоваться прогой можно
+// только после него (оверлей перехватывает клики, пока виден).
+function runBootScreen() {
+  const screen = document.getElementById('bootScreen');
+  if (!screen) return;
+  const bar = document.getElementById('bootBar');
+  const stageEl = document.getElementById('bootStage');
+  const DURATION = 3500;
+  const stages = [
+    [0, 'Запуск сервера…'],
+    [0.28, 'Проверка обновлений…'],
+    [0.58, 'Проверка файлов…'],
+    [0.85, 'Почти готово…'],
+  ];
+  let start = null, lastStage = -1;
+  const ease = (t) => 1 - Math.pow(1 - t, 2);
+  function frame(ts) {
+    if (start === null) start = ts;
+    const t = Math.min(1, (ts - start) / DURATION);
+    if (bar) bar.style.width = Math.round(ease(t) * 100) + '%';
+    let si = 0;
+    for (let i = 0; i < stages.length; i++) if (t >= stages[i][0]) si = i;
+    if (si !== lastStage && stageEl) {
+      lastStage = si;
+      stageEl.style.opacity = '0';
+      setTimeout(() => { stageEl.textContent = stages[si][1]; stageEl.style.opacity = '1'; }, 150);
+    }
+    if (t < 1) requestAnimationFrame(frame);
+    else setTimeout(() => {
+      screen.classList.add('boot-hide');
+      setTimeout(() => { try { screen.remove(); } catch { /* ok */ } }, 650);
+    }, 350);
+  }
+  requestAnimationFrame(frame);
+}
+runBootScreen();
 let providers = [];
 let templates = [];
 let chats = [];

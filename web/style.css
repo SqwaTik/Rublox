@@ -811,6 +811,42 @@ label.full input { width: 100%; padding: 9px 12px; border-radius: 10px; border: 
 .wn-foot .btn-primary:hover { filter: brightness(1.1); }
 .wn-foot .btn-primary:active { transform: scale(.97); }
 
+/* ── Загрузочный экран на всё окно ─────────────────────────────────── */
+#bootScreen {
+  position: fixed; inset: 0; z-index: 9999; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  background:
+    radial-gradient(900px 600px at 50% -10%, rgba(224,16,48,.18), transparent 60%),
+    radial-gradient(700px 500px at 100% 110%, rgba(176,13,34,.14), transparent 55%),
+    #0a0608;
+  transition: opacity .55s ease, visibility .55s ease;
+}
+#bootScreen.boot-hide { opacity: 0; visibility: hidden; pointer-events: none; }
+.boot-bg { position: absolute; inset: 0;
+  background: radial-gradient(420px 420px at 50% 42%, rgba(255,59,78,.10), transparent 70%);
+  animation: bootBreathe 3.2s ease-in-out infinite; }
+@keyframes bootBreathe { 0%,100% { opacity: .5; } 50% { opacity: 1; } }
+.boot-center { position: relative; display: flex; flex-direction: column; align-items: center; gap: 20px;
+  animation: bootIn .6s cubic-bezier(.22,1,.36,1); }
+@keyframes bootIn { from { opacity: 0; transform: translateY(10px) scale(.97); } to { opacity: 1; transform: none; } }
+.boot-logo { position: relative; width: 96px; height: 96px; display: grid; place-items: center;
+  border-radius: 26px; background: linear-gradient(135deg, #ff2a3d, #b00d22);
+  box-shadow: 0 18px 48px rgba(224,16,48,.45), inset 0 1px 2px rgba(255,255,255,.25);
+  animation: bootFloat 2.6s ease-in-out infinite; }
+.boot-logo img { width: 58px; height: 58px; border-radius: 14px; }
+@keyframes bootFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+.boot-ring { position: absolute; inset: -10px; border-radius: 32px;
+  border: 2.5px solid transparent; border-top-color: rgba(255,255,255,.9); border-right-color: rgba(255,255,255,.35);
+  animation: spin 1s linear infinite; }
+.boot-title { font-size: 30px; font-weight: 800; letter-spacing: .5px;
+  background: linear-gradient(135deg,#fff,#ffd9dd); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.boot-stage { font-size: 13.5px; color: rgba(255,255,255,.6); min-height: 18px; letter-spacing: .2px;
+  transition: opacity .25s ease; }
+.boot-bar { width: 240px; height: 5px; border-radius: 5px; background: rgba(255,255,255,.10); overflow: hidden; }
+.boot-bar > i { display: block; height: 100%; width: 0; border-radius: 5px;
+  background: linear-gradient(90deg, #ff3b4e, #b00d22);
+  box-shadow: 0 0 12px rgba(255,59,78,.6); transition: width .35s cubic-bezier(.4,0,.2,1); }
+
 .hidden { display: none !important; }
 
 @media (max-width: 720px) {

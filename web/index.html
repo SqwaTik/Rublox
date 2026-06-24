@@ -8,6 +8,17 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <!-- ── Загрузочный экран на всё окно (блокирует приложение до конца) ── -->
+    <div id="bootScreen">
+      <div class="boot-bg"></div>
+      <div class="boot-center">
+        <div class="boot-logo"><img src="img/logo-64.png" alt="" /><span class="boot-ring"></span></div>
+        <div class="boot-title">Rublox</div>
+        <div class="boot-stage" id="bootStage">Запуск…</div>
+        <div class="boot-bar"><i id="bootBar"></i></div>
+      </div>
+    </div>
+
     <!-- ── Кастомный титлбар ── -->
     <div class="titlebar" id="titlebar">
       <div class="tb-left">

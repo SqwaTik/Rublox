@@ -35,28 +35,13 @@ process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e &
 // Сплеш-окно с анимацией — показываем сразу, пока поднимается сервер.
 function createSplash() {
   try {
-    // НЕ transparent: на Windows прозрачные окна часто не отрисовываются вовсе.
-    // Сплошной фон + показ по ready-to-show = надёжно видимый сплеш.
-    splash = new BrowserWindow({
-      width: 400, height: 280, frame: false, transparent: false, resizable: false,
-      alwaysOnTop: true, center: true, skipTaskbar: true, backgroundColor: '#0c0708',
-      show: false,
-      webPreferences: { nodeIntegration: true, contextIsolation: false },
-    });
-    splash.loadFile(join(__dirname, 'splash.html'));
-    splash.once('ready-to-show', () => { splashShownAt = Date.now(); try { splash && splash.show(); } catch { /* ok */ } });
-    splashShownAt = Date.now();
+    // Загрузочный экран теперь РИСУЕТСЯ ВНУТРИ окна программы (web/#bootScreen) —
+    // он на всё окно, надёжно виден и масштабируется. Отдельное окно-сплеш больше
+    // не нужно (прозрачные окна на Windows часто не отрисовывались).
   } catch (e) { console.error('splash:', e && e.message); splash = null; }
 }
-let splashShownAt = 0;
-const MIN_SPLASH_MS = 1400; // гарантируем, что сплеш видно, даже если старт мгновенный
-function splashStage(text) { try { splash && splash.webContents.send('splash-stage', text); } catch { /* закрыт */ } }
-function closeSplash() {
-  const doClose = () => { try { if (splash && !splash.isDestroyed()) splash.close(); } catch { /* ok */ } splash = null; };
-  const elapsed = Date.now() - splashShownAt;
-  if (splash && elapsed < MIN_SPLASH_MS) setTimeout(doClose, MIN_SPLASH_MS - elapsed);
-  else doClose();
-}
+function splashStage() { /* стадии показывает внутренний #bootScreen */ }
+function closeSplash() { splash = null; }
 
 // Занят ли TCP-порт (быстрый connect-чек).
 function isPortOccupied(port) {
@@ -196,18 +181,17 @@ function trayIcon() {
 function createWindow() {
   win = new BrowserWindow({
     width: 1200, height: 800, minWidth: 760, minHeight: 540,
-    title: 'Rublox', backgroundColor: '#0c0708',
+    title: 'Rublox', backgroundColor: '#0c0708', // тёмный фон — без белой вспышки
     frame: false, // кастомный титлбар
     icon: ICON,
-    show: false, // показываем только когда контент готов (через ready-to-show)
+    show: true, // показываем сразу: загрузочный экран рисуется внутри окна (#bootScreen)
     webPreferences: {
       contextIsolation: true, nodeIntegration: false,
       preload: join(__dirname, 'preload.cjs'),
     },
   });
   win.loadURL(APP_URL);
-  // Плавная передача: окно появляется готовым, затем гасим сплеш.
-  win.once('ready-to-show', () => { win.show(); closeSplash(); });
+  win.once('ready-to-show', () => { try { win.show(); } catch { /* ok */ } closeSplash(); });
   // Если страница не загрузилась (сервер ещё не готов) — повторяем загрузку.
   win.webContents.on('did-fail-load', () => {
     setTimeout(() => { try { win && win.loadURL(APP_URL); } catch { /* ok */ } }, 500);
