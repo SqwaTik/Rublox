@@ -1,5 +1,8 @@
 /* ── Тема Rublox (красная) ── */
 :root {
+  /* Вектор-иконки для ::before/::after (через mask, цвет берётся из background) */
+  --ic-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+  --ic-square: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.5'%3E%3Crect x='4' y='4' width='16' height='16' rx='3'/%3E%3C/svg%3E");
   --bg-0: #0c0708;
   --bg-1: #140a0c;
   --panel: #1a1012;
@@ -238,7 +241,8 @@ html, body {
 
 /* ── Закреплённый план снизу (как в Claude Code) ── */
 .planbar {
-  flex: none; margin: 0 4px 2px; border: 1px solid var(--border);
+  flex: none; margin: 0 auto 2px; width: 100%; max-width: 460px;
+  align-self: center; border: 1px solid var(--border);
   border-radius: 10px; background: var(--panel); overflow: hidden;
   display: flex; flex-direction: column; max-height: 190px;
   box-shadow: 0 -2px 12px rgba(0,0,0,0.2); animation: rise 0.18s ease;
@@ -395,7 +399,11 @@ label.full textarea {
 .ask-btn-desc { font-size: 11.5px; color: var(--muted); }
 .ask-btn:disabled { opacity: .5; cursor: default; }
 .ask-btn.chosen { border-color: var(--accent); background: rgba(255,255,255,0.08); opacity: 1; }
-.ask-btn.chosen .ask-btn-label::after { content: " ✓"; color: var(--ok); }
+.ask-btn.chosen .ask-btn-label::after {
+  content: ''; display: inline-block; width: 12px; height: 12px; margin-left: 6px;
+  vertical-align: -1px; background: var(--ok);
+  -webkit-mask: var(--ic-check) center/contain no-repeat; mask: var(--ic-check) center/contain no-repeat;
+}
 .ask-other { display: flex; gap: 6px; margin-top: 9px; }
 .ask-input { flex: 1; padding: 8px 11px; border-radius: 9px; border: 1px solid var(--border);
   background: var(--panel-2); color: var(--text); font-family: var(--font, inherit); font-size: 13px; }
@@ -478,15 +486,24 @@ label.full textarea {
 .copy-btn svg { width: 14px; height: 14px; display: block; }
 .copy-btn:hover { background: rgba(255, 255, 255, 0.14); color: var(--text); }
 .copy-btn.copied { color: var(--ok); border-color: rgba(61,220,132,.4); }
-/* Списки-планы с галочками */
+/* Списки-планы с галочками (вектор-SVG через mask, цвет = currentColor) */
 .bubble li.done { list-style: none; margin-left: -16px; color: var(--ok); }
-.bubble li.done::before { content: '✔'; margin-right: 8px; }
+.bubble li.done::before {
+  content: ''; display: inline-block; width: 13px; height: 13px; margin-right: 8px;
+  vertical-align: -2px; background: currentColor;
+  -webkit-mask: var(--ic-check) center/contain no-repeat; mask: var(--ic-check) center/contain no-repeat;
+}
 .bubble li.todo { list-style: none; margin-left: -16px; color: var(--muted); }
-.bubble li.todo::before { content: '◻'; margin-right: 8px; color: var(--accent-2); }
+.bubble li.todo::before {
+  content: ''; display: inline-block; width: 13px; height: 13px; margin-right: 8px;
+  vertical-align: -2px; background: var(--accent-2);
+  -webkit-mask: var(--ic-square) center/contain no-repeat; mask: var(--ic-square) center/contain no-repeat;
+}
 
 /* ── Worklog (индикатор работы) ── */
 .worklog { display: flex; align-items: center; gap: 9px; padding: 4px 14px; font-size: 13px; color: var(--muted); }
-.wl-spin { color: var(--accent-2); animation: spin 1.4s linear infinite; display: inline-block; }
+.wl-spin { color: var(--accent-2); animation: spin 1.4s linear infinite; display: inline-flex; }
+.wl-spin svg { width: 14px; height: 14px; display: block; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .wl-text { color: var(--text); }
 .wl-meta { color: var(--muted); font-size: 12px; }
@@ -520,7 +537,11 @@ label.full textarea {
 .popover:not(.hidden) { animation: popIn .18s cubic-bezier(.2,.9,.3,1.25); }
 @keyframes popIn { from { opacity: 0; transform: translateY(8px) scale(.96); } to { opacity: 1; transform: none; } }
 /* Галочка у активного пункта появляется плавно. */
-.pop-item.active::after { content: '✓'; margin-left: auto; color: var(--accent-2); animation: rise .2s ease; }
+.pop-item.active::after {
+  content: ''; margin-left: auto; flex: none; width: 14px; height: 14px;
+  background: var(--accent-2); animation: rise .2s ease;
+  -webkit-mask: var(--ic-check) center/contain no-repeat; mask: var(--ic-check) center/contain no-repeat;
+}
 .pop-item { display: flex; align-items: center; }
 .pop-head select, .pop-search { width: 100%; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--border-2); background: rgba(0, 0, 0, 0.3); color: var(--text); font: inherit; }
 .pop-list { overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
