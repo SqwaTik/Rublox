@@ -74,7 +74,7 @@
             else if (/^-(?!--)/.test(ln)) cls = 'diff-del';
             else if (/^@@/.test(ln) || /^(\+\+\+|---)/.test(ln)) cls = 'diff-meta';
             return `<span class="diff-line ${cls}">${safe || ' '}</span>`;
-          }).join('\n');
+          }).join('');
           html += `<div class="codeblock diff"><span class="code-lang">diff</span><button class="copy-btn" title="Copy">${copyIcon}</button><pre><code>${rows}</code></pre></div>`;
           continue;
         }
