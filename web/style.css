@@ -798,3 +798,32 @@ label.full input { width: 100%; padding: 9px 12px; border-radius: 10px; border: 
   .sidebar.open { transform: none; }
   .only-mobile { display: grid; } .msg { max-width: 92%; } .template-grid, .form-grid { grid-template-columns: 1fr; }
 }
+
+/* ── Полировка: плавнее и приятнее везде (v0.5.0) ───────────────────── */
+/* Микро-взаимодействия кнопок: мягкий hover + лёгкое нажатие. */
+button, .chat-item, .pill, .template-card, .tmpl, .pl-item,
+.cselect-btn, .tab, .toolcall-head, .ci-act span {
+  transition: background-color .16s ease, color .16s ease, border-color .16s ease,
+    box-shadow .18s ease, transform .1s ease, filter .16s ease;
+}
+button:active:not(:disabled) { transform: scale(.97); }
+.chat-item:active { transform: scale(.99); }
+/* Чуть «дороже» появление сообщений и поповеров. */
+.msg { animation: rise .26s cubic-bezier(.22,1,.36,1); }
+.popover { animation: popIn .2s cubic-bezier(.22,1,.36,1); }
+.modal { animation: rise .24s cubic-bezier(.22,1,.36,1); }
+/* Плавная смена темы/цветов фона основных поверхностей. */
+.app, .sidebar, .chat-area, .bubble, .popover, .modal, .composer {
+  transition: background-color .25s ease, border-color .25s ease;
+}
+/* Аккуратный фокус-ринг на полях ввода. */
+input:focus-visible, textarea:focus-visible, .pop-search:focus-visible {
+  outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+/* Уважаем системную настройку «меньше движения». */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important; scroll-behavior: auto !important;
+  }
+}
