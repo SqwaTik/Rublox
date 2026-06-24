@@ -18,7 +18,7 @@ import {
   listProviders, upsertProvider, deleteProvider, fetchModels,
 } from './llm/registry.js';
 import { PROVIDER_TEMPLATES } from './llm/provider-templates.js';
-import { installPlugin } from './plugin-installer.js';
+import { installPlugin, bundledPluginVersion } from './plugin-installer.js';
 import { getBridgeToken, setBridgeToken, regenerateBridgeToken, getPcAgent, setPcAgent } from './app-config.js';
 import { listSkills, setSkillEnabled, addCustomSkill, removeCustomSkill } from './skills.js';
 import {
@@ -314,6 +314,10 @@ async function handleAppApi(req, res, url) {
     const body = await readBody(req);
     return sendJson(res, 200, { skills: removeCustomSkill(body.id) });
   }
+
+  // Версия встроенного плагина — плагин сам сверяет и предлагает обновиться.
+  if (url === '/api/plugin/version' && req.method === 'GET')
+    return sendJson(res, 200, { version: bundledPluginVersion() });
 
   // Установка плагина в Roblox Studio
   if (url === '/api/install-plugin' && req.method === 'POST') {

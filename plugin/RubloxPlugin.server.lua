@@ -17,7 +17,7 @@ local CollectionService = game:GetService("CollectionService")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 
 -- ── Конфигурация (можно поменять в полях UI) ──────────
-local PLUGIN_VERSION = "0.5.1" -- версия плагина (сервер сверяет и подсказывает обновление)
+local PLUGIN_VERSION = "0.5.5" -- версия плагина (сервер сверяет и подсказывает обновление)
 local serverUrl = "http://localhost:8787"
 local token = "change-me"
 local connected = false
@@ -119,6 +119,34 @@ cbc.Parent = connectBtn
 local statusLabel = makeLabel("Статус: отключён", 6)
 statusLabel.TextColor3 = Color3.fromRGB(248, 81, 73)
 
+-- Версия плагина + проверка/обновление прямо из панели (без перезахода в Studio).
+local verLabel = makeLabel("Версия плагина: v" .. PLUGIN_VERSION, 7)
+
+local checkBtn = Instance.new("TextButton")
+checkBtn.Size = UDim2.new(1, 0, 0, 26)
+checkBtn.BackgroundColor3 = Color3.fromRGB(40, 46, 56)
+checkBtn.TextColor3 = Color3.fromRGB(210, 215, 225)
+checkBtn.BorderSizePixel = 0
+checkBtn.Font = Enum.Font.Gotham
+checkBtn.TextSize = 12
+checkBtn.Text = "Проверить обновления"
+checkBtn.LayoutOrder = 8
+checkBtn.Parent = root
+local cbc2 = Instance.new("UICorner"); cbc2.CornerRadius = UDim.new(0, 6); cbc2.Parent = checkBtn
+
+local updateBtn = Instance.new("TextButton")
+updateBtn.Size = UDim2.new(1, 0, 0, 30)
+updateBtn.BackgroundColor3 = Color3.fromRGB(63, 185, 80)
+updateBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+updateBtn.BorderSizePixel = 0
+updateBtn.Font = Enum.Font.GothamBold
+updateBtn.TextSize = 13
+updateBtn.Text = "Обновить плагин"
+updateBtn.LayoutOrder = 9
+updateBtn.Visible = false
+updateBtn.Parent = root
+local ubc = Instance.new("UICorner"); ubc.CornerRadius = UDim.new(0, 6); ubc.Parent = updateBtn
+
 local logBox = Instance.new("TextLabel")
 logBox.Size = UDim2.new(1, 0, 0, 220)
 logBox.BackgroundColor3 = Color3.fromRGB(14, 17, 22)
@@ -130,7 +158,7 @@ logBox.TextXAlignment = Enum.TextXAlignment.Left
 logBox.TextYAlignment = Enum.TextYAlignment.Top
 logBox.TextWrapped = true
 logBox.Text = ""
-logBox.LayoutOrder = 7
+logBox.LayoutOrder = 10
 logBox.Parent = root
 local lbc = Instance.new("UICorner")
 lbc.CornerRadius = UDim.new(0, 6)
@@ -144,6 +172,77 @@ local function log(msg)
 	end
 	logBox.Text = table.concat(logLines, "\n")
 end
+
+-- ── Обновление плагина прямо из панели ────────────────
+-- Сравнение версий "x.y.z": >0 если a новее b.
+local function cmpVer(a, b)
+	local function parts(v)
+		local t = {}
+		for n in tostring(v):gmatch("%d+") do t[#t + 1] = tonumber(n) end
+		return t
+	end
+	local pa, pb = parts(a), parts(b)
+	for i = 1, 3 do
+		local x, y = pa[i] or 0, pb[i] or 0
+		if x ~= y then return x - y end
+	end
+	return 0
+end
+
+-- Проверить версию встроенного плагина на сервере. manual=true — писать в лог
+-- даже когда обновления нет (по нажатию кнопки).
+local function checkPluginUpdate(manual)
+	local ok, res = pcall(function()
+		return HttpService:RequestAsync({
+			Url = urlBox.Text .. "/api/plugin/version",
+			Method = "GET",
+			Headers = { ["Content-Type"] = "application/json" },
+		})
+	end)
+	if ok and res and res.Success then
+		local good, data = pcall(function() return HttpService:JSONDecode(res.Body) end)
+		if good and data and data.version then
+			if cmpVer(data.version, PLUGIN_VERSION) > 0 then
+				verLabel.Text = "Доступно обновление плагина: v" .. data.version
+				verLabel.TextColor3 = Color3.fromRGB(63, 185, 80)
+				updateBtn.Visible = true
+				if manual then log("Доступна версия v" .. data.version) end
+				return
+			elseif manual then
+				log("Плагин актуален (v" .. PLUGIN_VERSION .. ")")
+			end
+		end
+	elseif manual then
+		log("Не удалось проверить обновления (сервер не отвечает)")
+	end
+	updateBtn.Visible = false
+end
+
+-- Обновить плагин: просим сервер пересобрать и переустановить .rbxm. Studio сам
+-- перечитает изменившийся локальный плагин — без перезахода в Studio.
+local function doPluginUpdate()
+	updateBtn.Text = "Обновляю…"
+	log("Обновление плагина… Studio перезагрузит панель через пару секунд.")
+	task.spawn(function()
+		local ok = pcall(function()
+			HttpService:RequestAsync({
+				Url = urlBox.Text .. "/api/install-plugin",
+				Method = "POST",
+				Headers = { ["Content-Type"] = "application/json" },
+				Body = "{}",
+			})
+		end)
+		if ok then
+			log("Готово. Если панель не перезагрузилась — снимите/поставьте галку плагина Rublox.")
+		else
+			log("Не удалось обновить — установите плагин из приложения Rublox.")
+		end
+		updateBtn.Text = "Обновить плагин"
+	end)
+end
+
+checkBtn.MouseButton1Click:Connect(function() checkPluginUpdate(true) end)
+updateBtn.MouseButton1Click:Connect(doPluginUpdate)
 
 -- ── Исполнители инструментов ──────────────────────────
 
@@ -1871,6 +1970,7 @@ local function setConnected(state)
 		connectBtn.BackgroundColor3 = Color3.fromRGB(248, 81, 73)
 		log("Подключение к " .. urlBox.Text)
 		startPolling()
+		task.spawn(function() checkPluginUpdate(false) end) -- авто-проверка версии плагина
 	else
 		statusLabel.Text = "Статус: отключён"
 		statusLabel.TextColor3 = Color3.fromRGB(248, 81, 73)
