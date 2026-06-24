@@ -35,12 +35,16 @@ process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e &
 // Сплеш-окно с анимацией — показываем сразу, пока поднимается сервер.
 function createSplash() {
   try {
+    // НЕ transparent: на Windows прозрачные окна часто не отрисовываются вовсе.
+    // Сплошной фон + показ по ready-to-show = надёжно видимый сплеш.
     splash = new BrowserWindow({
-      width: 380, height: 260, frame: false, transparent: true, resizable: false,
-      alwaysOnTop: true, center: true, skipTaskbar: true, backgroundColor: '#00000000',
+      width: 400, height: 280, frame: false, transparent: false, resizable: false,
+      alwaysOnTop: true, center: true, skipTaskbar: true, backgroundColor: '#0c0708',
+      show: false,
       webPreferences: { nodeIntegration: true, contextIsolation: false },
     });
     splash.loadFile(join(__dirname, 'splash.html'));
+    splash.once('ready-to-show', () => { splashShownAt = Date.now(); try { splash && splash.show(); } catch { /* ok */ } });
     splashShownAt = Date.now();
   } catch (e) { console.error('splash:', e && e.message); splash = null; }
 }
