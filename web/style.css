@@ -847,3 +847,5 @@ input:focus-visible, textarea:focus-visible, .pop-search:focus-visible {
     transition-duration: .001ms !important; scroll-behavior: auto !important;
   }
 }
+
+.tool-fetch .fetch-meta { color: var(--muted); font-size: 11px; }

@@ -747,6 +747,21 @@ function renderToolResult(name, ok, result) {
   if (ok && name === 'search_assets' && /assetId\s+\d+/.test(String(result || ''))) {
     renderAssets(String(result)); return;
   }
+  // web_fetch: НЕ вываливаем всю страницу в чат — модель получает полный текст,
+  // а пользователю показываем компактную строку (заголовок + объём загруженного).
+  if (ok && name === 'web_fetch') {
+    const txt = String(result || '').replace(/\s+/g, ' ').trim();
+    if (!txt) return;
+    const title = truncate(txt, 120);
+    clearWelcome();
+    const wrap = document.createElement('div');
+    wrap.className = 'msg tool';
+    wrap.innerHTML = `<div class="bubble rich"><div class="toolcall-head">${window.ICON.globe || ''}` +
+      `<b>web_fetch</b></div><div class="tool-res tool-fetch">${escUsage(title)} ` +
+      `<span class="fetch-meta">· ${txt.length} симв.</span></div></div>`;
+    chat.appendChild(wrap); trimChat(); scrollDown();
+    return;
+  }
   if (name === 'ask_user') return;
   const s = String(result == null ? '' : result);
   // Тривиальный успех не засоряет ленту — детали уже видны в ответе ассистента.

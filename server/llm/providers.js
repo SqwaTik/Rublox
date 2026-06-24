@@ -146,7 +146,19 @@ function sanitizeMessages(messages) {
 // ── Anthropic: преобразование канона ───────────────────
 function canonToAnthropic(messages) {
   const out = [];
+  // Серия идущих подряд tool-результатов должна склеиваться в ОДНО user-сообщение
+  // с несколькими tool_result-блоками. Иначе при ПАРАЛЛЕЛЬНЫХ вызовах (assistant с
+  // двумя tool_use) каждый результат попадал в отдельное сообщение, и Anthropic
+  // ругался: «tool_use ids were found without tool_result blocks immediately after».
+  let toolMsg = null;
   for (const m of messages) {
+    if (m.role === 'tool') {
+      const block = { type: 'tool_result', tool_use_id: m.toolCallId, content: m.content && m.content.length ? m.content : '(пусто)' };
+      if (toolMsg) { toolMsg.content.push(block); }
+      else { toolMsg = { role: 'user', content: [block] }; out.push(toolMsg); }
+      continue;
+    }
+    toolMsg = null; // любой не-tool обрывает серию результатов
     if (m.role === 'user') {
       if (m.images && m.images.length) {
         const parts = [];
@@ -167,11 +179,6 @@ function canonToAnthropic(messages) {
       // Пустой ассистент без блоков — пропускаем (Anthropic требует непустой content).
       if (!blocks.length) continue;
       out.push({ role: 'assistant', content: blocks });
-    } else if (m.role === 'tool') {
-      out.push({
-        role: 'user',
-        content: [{ type: 'tool_result', tool_use_id: m.toolCallId, content: m.content && m.content.length ? m.content : '(пусто)' }],
-      });
     }
   }
   return out;
