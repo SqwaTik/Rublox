@@ -120,7 +120,11 @@ function onMessage(m) {
       else if (!chatOpened && !chats.length) { chatOpened = true; renderWelcomeIfEmpty(); }
       break;
     case 'session': applySession(m.info); break;
-    case 'usage': lastUsage = m.usage || { available: false }; renderUsageRing(); break;
+    case 'usage':
+      lastUsage = m.usage || { available: false };
+      if (m.usage && typeof m.usage.spentTotal === 'number') spentTotal = m.usage.spentTotal;
+      renderUsageRing();
+      break;
     case 'hello':
       myCid = m.cid;
       if (m.version) {
@@ -1020,7 +1024,16 @@ function updatePills() {
 
 // ── Индикатор лимитов (кольцо) ─────────────────────────
 let lastUsage = { available: false };
+let spentTotal = 0; // суммарно потрачено токенов за всё время (с сервера)
 const RING_C = 2 * Math.PI * 9; // длина окружности r=9
+
+// Компактный формат больших чисел: 1234 → 1.2k, 1500000 → 1.5M.
+function fmtNum(n) {
+  n = Number(n) || 0;
+  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + 'k';
+  return String(n);
+}
 
 // Перерисовать кольцо: заполнение = доля ОСТАВШЕГОСЯ лимита (узкое горло).
 function renderUsageRing() {
@@ -1045,7 +1058,17 @@ async function loadUsage() {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ provider: current.provider, chatId: activeChat }),
   }).then((r) => r.json()).catch(() => null);
-  if (r) { lastUsage = r.usage || { available: false }; renderUsageRing(); }
+  if (r) {
+    lastUsage = r.usage || { available: false };
+    if (r.usage && typeof r.usage.spentTotal === 'number') spentTotal = r.usage.spentTotal;
+    renderUsageRing();
+  }
+}
+
+// Строка «Всего потрачено токенов» — показываем в поповере всегда.
+function spentLine() {
+  return `<div class="usage-spent"><span>${window.t('limitsSpent') || 'Всего потрачено'}</span>` +
+    `<span class="usage-spent-num">${fmtNum(spentTotal)} ${window.t('limitsTokensShort') || 'токенов'}</span></div>`;
 }
 
 function renderUsagePopover() {
@@ -1054,7 +1077,8 @@ function renderUsagePopover() {
   const t = (k, d) => window.t(k) || d;
   if (!u || !u.available) {
     box.innerHTML = `<div class="usage-title">${t('limitsTitle', 'Лимиты')}</div>` +
-      `<div class="usage-none">${t('limitsNone', 'Данных о лимитах нет — провайдер их не присылает.')}</div>`;
+      `<div class="usage-none">${t('limitsNone', 'Данных о лимитах нет — провайдер их не присылает.')}</div>` +
+      spentLine();
     return;
   }
   const pct = u.ratio != null ? Math.round(u.ratio * 100) : null;
@@ -1074,7 +1098,8 @@ function renderUsagePopover() {
     (pct != null ? ` · ${pct}%` : '') + `</div>` +
     bar(u.requests, t('limitsRequests', 'Запросы')) +
     bar(u.tokens, t('limitsTokens', 'Токены')) +
-    (reset ? `<div class="usage-reset">${t('limitsReset', 'Сброс')}: ${esc(String(reset))}</div>` : '');
+    (reset ? `<div class="usage-reset">${t('limitsReset', 'Сброс')}: ${esc(String(reset))}</div>` : '') +
+    spentLine();
 }
 
 function escUsage(s) { return String(s == null ? '' : s).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])); }

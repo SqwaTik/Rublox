@@ -3,7 +3,42 @@
 // снимок по провайдеру. Это реальные данные от API, а не выдумка: если заголовков
 // нет (локальная модель, нестандартный шлюз) — снимок помечается available:false.
 
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { config } from './config.js';
+
 const lastByProvider = new Map();
+
+// ── Суммарно потраченные токены за всё время ────────────
+// Грубая (но честная по порядку величины) сумма output-токенов всех прогонов.
+// Храним в data/app.json рядом с прочими настройками, чтобы счётчик переживал
+// перезапуск. Запись throttle'им — не чаще раза в 3 с (диск не насилуем).
+const appFile = join(config.dataDir, 'data', 'app.json');
+function readApp() { try { return JSON.parse(readFileSync(appFile, 'utf8')); } catch { return {}; } }
+function writeApp(obj) {
+  try {
+    const dir = join(config.dataDir, 'data');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(appFile, JSON.stringify(obj, null, 2));
+  } catch (err) { console.warn('usage write:', err.message); }
+}
+
+let spentTotal = Number(readApp().spentTokens) || 0;
+let lastFlush = 0;
+let flushTimer = null;
+function flushSpent() {
+  lastFlush = Date.now();
+  writeApp({ ...readApp(), spentTokens: spentTotal });
+}
+export function addSpent(tokens) {
+  const n = Number(tokens) || 0;
+  if (n <= 0) return;
+  spentTotal += n;
+  // Throttle записи; гарантированный флеш по таймеру, если давно не писали.
+  if (Date.now() - lastFlush > 3000) flushSpent();
+  else if (!flushTimer) { flushTimer = setTimeout(() => { flushTimer = null; flushSpent(); }, 3000); }
+}
+export function getSpentTotal() { return spentTotal; }
 
 function num(v) {
   if (v == null || v === '') return null;

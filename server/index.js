@@ -24,7 +24,7 @@ import { listSkills, setSkillEnabled, addCustomSkill, removeCustomSkill } from '
 import {
   listProjects, getActiveProject, setActiveProject, createProject, updateProject, deleteProject,
 } from './projects.js';
-import { getUsage } from './usage.js';
+import { getUsage, addSpent, getSpentTotal } from './usage.js';
 import { resolveAsk, hasPendingAsk } from './asks.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -218,7 +218,7 @@ async function handleAppApi(req, res, url) {
   if (url === '/api/usage' && req.method === 'POST') {
     const body = await readBody(req);
     const id = body.provider || getSession(body.chatId || 'default').provider;
-    return sendJson(res, 200, { usage: getUsage(id), provider: id });
+    return sendJson(res, 200, { usage: { ...getUsage(id), spentTotal: getSpentTotal() }, provider: id });
   }
 
   // ── Проекты ──
@@ -409,9 +409,10 @@ wss.on('connection', (ws) => {
     send({ type: 'typing' });
     const ac = new AbortController();
     runs.set(chatId, ac);
+    let runTokens = 0; // токены этого прогона (последнее значение из status)
     try {
       await runAgent(session, (evType, d) => {
-        if (evType === 'status') send({ type: 'status_work', text: d.text, tokens: d.tokens });
+        if (evType === 'status') { if (typeof d.tokens === 'number') runTokens = d.tokens; send({ type: 'status_work', text: d.text, tokens: d.tokens }); }
         else if (evType === 'assistant_start') send({ type: 'assistant_start' });
         else if (evType === 'assistant_delta') send({ type: 'assistant_delta', text: d.text });
         else if (evType === 'assistant_text') send({ type: 'assistant_end', text: d.text });
@@ -426,10 +427,12 @@ wss.on('connection', (ws) => {
       runs.delete(chatId);
       if (ultra) session.thinking = prevThinking; // вернуть прежний уровень мышления
     }
+    if (runTokens > 0) addSpent(runTokens); // копим суммарный расход токенов
     await session.autoTitle(); // авто-заголовок по теме, если не переименован
     session.persist();
     send({ type: 'session', info: session.info() });
-    send({ type: 'usage', usage: getUsage(session.provider) }); // обновить лимиты
+    // Лимиты провайдера + суммарно потраченные токены за всё время (для UI).
+    send({ type: 'usage', usage: { ...getUsage(session.provider), spentTotal: getSpentTotal() } });
     send({ type: 'chats', chats: listSessions() });
     send({ type: 'done' });
   });

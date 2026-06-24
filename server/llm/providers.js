@@ -30,6 +30,11 @@ function explainHttpError(status, rawMsg) {
   // ИСЧЕРПАННОМ БАЛАНСЕ — а текст «ключ не подходит» вводит в заблуждение. Сначала
   // смотрим в сам текст ошибки и определяем причину по ключевым словам.
   const has = (re) => re.test(low);
+  // Реселлер пускает только НАСТОЯЩИЙ клиент Claude Code (проверка по отпечатку
+  // клиента/TLS, не по заголовкам). Обойти из стороннего приложения нельзя.
+  if (has(/official claude code client|restricted to the official|use claude code cli|please use claude code/)) {
+    return `LLM HTTP ${status}: провайдер принимает только официальный клиент Claude Code и блокирует сторонние приложения — через Rublox он работать не будет. Используйте другого провайдера (например, agentrouter).`;
+  }
   if (has(/insufficient.*(balance|credit|fund|quota)|no.*(balance|credit)|out of (credit|quota)|balance.*(low|exhaust|insufficient)|недостаточно средств|баланс|закончил|нет средств|пополните|top.?up|payment required|billing|recharge/)) {
     return `LLM HTTP ${status}: закончился баланс/кредиты у провайдера. Пополните счёт или смените провайдера.` +
       (short ? ` (${short})` : '');
