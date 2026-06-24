@@ -17,7 +17,7 @@ local CollectionService = game:GetService("CollectionService")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 
 -- ── Конфигурация (можно поменять в полях UI) ──────────
-local PLUGIN_VERSION = "0.5.0" -- версия плагина (сервер сверяет и подсказывает обновление)
+local PLUGIN_VERSION = "0.5.1" -- версия плагина (сервер сверяет и подсказывает обновление)
 local serverUrl = "http://localhost:8787"
 local token = "change-me"
 local connected = false
