@@ -148,6 +148,7 @@ function onMessage(m) {
         endStream(); stopWork(); setSendStop(false);
         if (reloadOnDone.has(m.chatId)) { reloadOnDone.delete(m.chatId); reloadMessages(); }
       }
+      schedulePlanDismiss(m.chatId); // план завершён → плавно убрать через 5с
       break;
     case 'status': renderStatus(m.status); break;
     case 'providers': providers = m.providers; renderProviderPickers(); break;
@@ -552,6 +553,10 @@ function renderPlan(steps) {
   steps = Array.isArray(steps) ? steps : [];
   const bar = $('planbar');
   if (!bar) return;
+  // Любое обновление плана отменяет отложенное автоскрытие и снимает класс ухода
+  // (началась новая работа над планом — не гасим его).
+  if (planDismissTimer) { clearTimeout(planDismissTimer); planDismissTimer = null; }
+  bar.classList.remove('plan-dismiss');
   // Запоминаем план для этого чата — чтобы он не пропадал при переключении чатов
   // и после Стоп (восстанавливается в switchChat).
   if (activeChat) { if (steps.length) planByChat[activeChat] = steps; else delete planByChat[activeChat]; }
@@ -590,6 +595,25 @@ function renderPlan(steps) {
 }
 // Сохранённые планы по чатам (липкий план: переживает переключение чатов и Стоп).
 const planByChat = {};
+
+// Автоскрытие завершённого плана: через 5с после 'done' план плавно уезжает вниз
+// и забывается. Если за это время началась новая работа (renderPlan/новый прогон) —
+// скрытие отменяется. Так план виден после завершения, но не висит вечно.
+let planDismissTimer = null;
+function schedulePlanDismiss(chatId) {
+  if (planDismissTimer) { clearTimeout(planDismissTimer); planDismissTimer = null; }
+  if (!chatId || !planByChat[chatId]) return;
+  planDismissTimer = setTimeout(() => {
+    planDismissTimer = null;
+    if (busyChats.has(chatId)) return;       // снова идёт работа — оставляем план
+    delete planByChat[chatId];               // задача завершена — план больше не нужен
+    if (chatId !== activeChat) return;        // открыт другой чат — гасить нечего
+    const bar = $('planbar');
+    if (!bar || bar.classList.contains('hidden')) return;
+    bar.classList.add('plan-dismiss');        // плавный уход (CSS-переход)
+    setTimeout(() => { if (bar.classList.contains('plan-dismiss')) clearPlan(true); }, 500);
+  }, 5000);
+}
 
 // Спрятать закреплённый план (новый чат / новая отправка). forget=true — забыть
 // план чата совсем (новая задача), иначе только убрать с экрана.

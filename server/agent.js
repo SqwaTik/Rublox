@@ -593,7 +593,7 @@ export async function runAgent(session, onEvent = () => {}, opts = {}) {
       throw err;
     }
 
-    session.addAssistant(reply.text, reply.toolCalls);
+    session.addAssistant(reply.text, reply.toolCalls, reply.thinking);
     onEvent('assistant_text', { text: reply.text });
 
     // Прервали во время стрима — сохраняем то, что есть, и выходим.

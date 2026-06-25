@@ -144,7 +144,11 @@ function sanitizeMessages(messages) {
 }
 
 // ── Anthropic: преобразование канона ───────────────────
-function canonToAnthropic(messages) {
+// includeThinking — добавлять ли обратно thinking-блоки ассистента. При включённом
+// extended thinking Anthropic ТРЕБУЕТ возвращать `thinking` (с подписью) в том же
+// ассистент-сообщении перед text/tool_use, иначе 400. Когда мышление выключено —
+// блоки НЕ шлём (иначе тоже ошибка).
+function canonToAnthropic(messages, includeThinking) {
   const out = [];
   // Серия идущих подряд tool-результатов должна склеиваться в ОДНО user-сообщение
   // с несколькими tool_result-блоками. Иначе при ПАРАЛЛЕЛЬНЫХ вызовах (assistant с
@@ -172,6 +176,10 @@ function canonToAnthropic(messages) {
       }
     } else if (m.role === 'assistant') {
       const blocks = [];
+      // Thinking-блоки идут ПЕРВЫМИ (требование API) и только при включённом мышлении.
+      if (includeThinking && Array.isArray(m.thinking)) {
+        for (const tb of m.thinking) blocks.push(tb);
+      }
       if (m.content && m.content.length) blocks.push({ type: 'text', text: m.content });
       for (const tc of m.toolCalls || []) {
         blocks.push({ type: 'tool_use', id: tc.id, name: tc.name, input: tc.args || {} });
@@ -185,15 +193,16 @@ function canonToAnthropic(messages) {
 }
 
 function anthropicBody(p, { system, messages, model, temperature, maxTokens, useTools, studioConnected, pcAllowed, thinking }, stream) {
+  const thinkingOn = !!(thinking && thinking.budget >= 4096);
   const body = {
     model: model || p.model,
     max_tokens: maxTokens,
     temperature,
     system,
-    messages: canonToAnthropic(messages),
+    messages: canonToAnthropic(messages, thinkingOn),
   };
   // Extended thinking: включаем на «глубоком» уровне. Требует temperature=1.
-  if (thinking && thinking.budget >= 4096) {
+  if (thinkingOn) {
     body.thinking = { type: 'enabled', budget_tokens: thinking.budget };
     body.temperature = 1;
   }
@@ -338,12 +347,17 @@ async function callAnthropic(p, opts) {
   const data = await parseJsonRes(res, p.id);
   let text = '';
   const toolCalls = [];
+  const thinking = [];
   for (const block of data.content || []) {
     if (block.type === 'text') text += block.text;
     else if (block.type === 'tool_use')
       toolCalls.push({ id: block.id, name: block.name, args: block.input || {} });
+    else if (block.type === 'thinking')
+      thinking.push({ type: 'thinking', thinking: block.thinking || '', signature: block.signature || '' });
+    else if (block.type === 'redacted_thinking')
+      thinking.push({ type: 'redacted_thinking', data: block.data || '' });
   }
-  return { text, toolCalls };
+  return { text, toolCalls, thinking };
 }
 
 async function streamAnthropic(p, opts, onDelta) {
@@ -363,20 +377,25 @@ async function streamAnthropic(p, opts, onDelta) {
     }
     if (ev.type === 'content_block_start') {
       const b = ev.content_block || {};
-      blocks[ev.index] = { type: b.type, id: b.id, name: b.name, jsonBuf: '' };
+      blocks[ev.index] = { type: b.type, id: b.id, name: b.name, jsonBuf: '', thinking: b.thinking || '', signature: b.signature || '', data: b.data || '' };
     } else if (ev.type === 'content_block_delta') {
       const d = ev.delta || {};
+      const blk = blocks[ev.index];
       if (d.type === 'text_delta') {
         text += d.text;
         onDelta(d.text);
       } else if (d.type === 'input_json_delta') {
-        const blk = blocks[ev.index];
         if (blk) blk.jsonBuf += d.partial_json || '';
+      } else if (d.type === 'thinking_delta') {
+        if (blk) blk.thinking += d.thinking || '';
+      } else if (d.type === 'signature_delta') {
+        if (blk) blk.signature += d.signature || '';
       }
     }
   });
 
   const toolCalls = [];
+  const thinking = [];
   for (const idx of Object.keys(blocks)) {
     const b = blocks[idx];
     if (b.type === 'tool_use') {
@@ -387,9 +406,13 @@ async function streamAnthropic(p, opts, onDelta) {
         args = {};
       }
       toolCalls.push({ id: b.id, name: b.name, args });
+    } else if (b.type === 'thinking') {
+      thinking.push({ type: 'thinking', thinking: b.thinking || '', signature: b.signature || '' });
+    } else if (b.type === 'redacted_thinking') {
+      thinking.push({ type: 'redacted_thinking', data: b.data || '' });
     }
   }
-  return { text, toolCalls };
+  return { text, toolCalls, thinking };
 }
 
 // ── OpenAI-совместимые: преобразование канона ──────────
@@ -570,7 +593,7 @@ function reconcileToolCalls(result, useTools, known) {
   if (!useTools) return result;
   if (result.toolCalls && result.toolCalls.length) return result;
   const ex = extractInlineToolCalls(result.text || '', known);
-  if (ex.toolCalls.length) return { text: ex.text, toolCalls: ex.toolCalls };
+  if (ex.toolCalls.length) return { ...result, text: ex.text, toolCalls: ex.toolCalls };
   return result;
 }
 

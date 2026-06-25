@@ -508,7 +508,7 @@ export const TOOLS = [
         ceilingMaterial: { type: 'string', description: 'Материал потолка.' },
         doorways: {
           type: 'array',
-          description: 'Дверные/оконные проёмы в стенах.',
+          description: 'Дверные проёмы (от пола). door:true — навесить ОТКРЫВАЮЩУЮСЯ дверь.',
           items: {
             type: 'object',
             properties: {
@@ -516,12 +516,124 @@ export const TOOLS = [
               offset: { type: 'number', description: 'Смещение центра проёма от центра стены (studs, 0 = по центру).' },
               width: { type: 'number', description: 'Ширина проёма (по умолчанию 7).' },
               height: { type: 'number', description: 'Высота проёма (по умолчанию 10).' },
+              door: { type: 'boolean', description: 'true — повесить открывающуюся дверь (ProximityPrompt в игре).' },
             },
             required: ['side'],
           },
         },
+        windows: {
+          type: 'array',
+          description: 'Окна (проём с подоконником и стеклом).',
+          items: {
+            type: 'object',
+            properties: {
+              side: { type: 'string', description: 'Стена: north | south | east | west.' },
+              offset: { type: 'number', description: 'Смещение от центра стены (studs).' },
+              width: { type: 'number', description: 'Ширина окна (по умолчанию 6).' },
+              height: { type: 'number', description: 'Высота окна (по умолчанию 5).' },
+              sill: { type: 'number', description: 'Высота подоконника от пола (по умолчанию 4).' },
+            },
+            required: ['side'],
+          },
+        },
+        doorColor: { type: 'string', description: 'Цвет открывающихся дверей "#RRGGBB".' },
       },
       required: ['width', 'depth', 'height'],
+    },
+  },
+  {
+    name: 'build_stairs',
+    description: 'РОВНАЯ сплошная лестница N ступеней (вместо кривой ручной генерации кодом). ' +
+      'Поднимается вдоль direction; по ней можно ходить. Для подъёмов между этажами/уровнями.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' }, parent: { type: 'string' },
+        position: { type: 'object', description: '{x,y,z} низ лестницы (studs).' },
+        steps: { type: 'number', description: 'Число ступеней (по умолчанию 12).' },
+        width: { type: 'number', description: 'Ширина лестницы (по умолчанию 8).' },
+        stepHeight: { type: 'number', description: 'Высота ступени (по умолчанию 1.2).' },
+        stepDepth: { type: 'number', description: 'Глубина ступени (по умолчанию 2).' },
+        direction: { type: 'string', description: 'Направление подъёма: north | east | south | west.' },
+        color: { type: 'string' }, material: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'build_floor',
+    description: 'Ровная плита: пол, потолок, платформа, дорога, перекрытие. По реальным размерам.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' }, parent: { type: 'string' },
+        position: { type: 'object', description: '{x,y,z} центр плиты.' },
+        width: { type: 'number' }, depth: { type: 'number' },
+        thickness: { type: 'number', description: 'Толщина (по умолчанию 1).' },
+        color: { type: 'string' }, material: { type: 'string' },
+      },
+      required: ['width', 'depth'],
+    },
+  },
+  {
+    name: 'build_roof',
+    description: 'Крыша над прямоугольником. style: "gable" (двускатная), "flat" (плоская). ' +
+      'position — центр на уровне верха стен, height — подъём конька.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' }, parent: { type: 'string' },
+        position: { type: 'object', description: '{x,y,z} центр на верхе стен.' },
+        width: { type: 'number' }, depth: { type: 'number' },
+        height: { type: 'number', description: 'Подъём конька (для gable).' },
+        style: { type: 'string', description: 'gable | flat.' },
+        thickness: { type: 'number' }, color: { type: 'string' }, material: { type: 'string' },
+      },
+      required: ['width', 'depth'],
+    },
+  },
+  {
+    name: 'build_pillar',
+    description: 'Колонны/столбы. positions — список {x,y,z}; или одна position. shape: box | cylinder.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' }, parent: { type: 'string' },
+        positions: { type: 'array', description: 'Список {x,y,z} оснований колонн.', items: { type: 'object' } },
+        position: { type: 'object', description: '{x,y,z} одной колонны (если без positions).' },
+        height: { type: 'number', description: 'Высота (по умолчанию 14).' },
+        size: { type: 'number', description: 'Толщина (по умолчанию 2).' },
+        shape: { type: 'string', description: 'box | cylinder.' },
+        color: { type: 'string' }, material: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'build_fence',
+    description: 'Забор/ограждение по ломаной points: посты в точках + перекладины между ними. ' +
+      'Для периметра передай 4 угла + повтори первый.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' }, parent: { type: 'string' },
+        points: { type: 'array', description: 'Список {x,y,z} вершин линии забора (≥2).', items: { type: 'object' } },
+        height: { type: 'number', description: 'Высота (по умолчанию 5).' },
+        color: { type: 'string' }, material: { type: 'string' },
+      },
+      required: ['points'],
+    },
+  },
+  {
+    name: 'build_tree',
+    description: 'Процедурное дерево из частей (ствол + крона). Используй, когда нужно дерево, ' +
+      'а подходящего ассета в тулбоксе нет/недоступен. Для леса вызови несколько раз.',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' }, parent: { type: 'string' },
+        position: { type: 'object', description: '{x,y,z} основание ствола.' },
+        height: { type: 'number', description: 'Высота дерева (по умолчанию 18).' },
+        trunkColor: { type: 'string' }, leafColor: { type: 'string' },
+      },
     },
   },
   {
@@ -781,17 +893,36 @@ export const TOOLS = [
   {
     name: 'create_cutscene',
     description:
-      'Создать КАТСЦЕНУ с крутыми движениями камеры: камера плавно облетает сцену по ' +
-      'ключевым кадрам (CFrame) с переходами TweenService. Генерирует готовый LocalScript ' +
-      'в StarterPlayerScripts. Каждый кадр: position (где камера), lookAt (куда смотрит), ' +
-      'duration (за сколько прилететь), easingStyle. Делай 3–6 кадров для кинематографичного ' +
-      'облёта. Запускается в Play.',
+      'Кинематографичная КАТСЦЕНА: камера плавно идёт по ключевым кадрам (TweenService), ' +
+      'на ВЕСЬ экран (кинобары-леттербокс + фейды из/в чёрное). Генерирует LocalScript, ' +
+      'играет в Play. Всё ниже — ОПЦИОНАЛЬНЫЕ возможности, включай по смыслу сцены (не обязательно): ' +
+      'музыка (music), вспышка (frame.flash), зум (frame.fov), тряска (frame.shake), ' +
+      'мудрое освещение (lighting, с авто-восстановлением), анимация NPC (frame.anim), ' +
+      'ход NPC (frame.moveTo). Чтобы видеть ЛИЦО NPC, а не спину — задавай frame.focus (путь к ' +
+      'модели) + frame.focusFace:true: камера встанет перед лицом. Делай 3–7 кадров.',
     parameters: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Имя катсцены.' },
         parent: { type: 'string', description: 'Куда положить скрипт (по умолчанию StarterPlayerScripts).' },
         autoStart: { type: 'boolean', description: 'Запускать сразу при входе (по умолчанию true).' },
+        letterbox: { type: 'boolean', description: 'Кинобары на весь экран (по умолчанию true).' },
+        fadeIn: { type: 'number', description: 'Проявление из чёрного в начале, сек (по умолч. 0.8).' },
+        fadeOut: { type: 'number', description: 'Уход в чёрное в конце, сек (по умолч. 0.8).' },
+        skippable: { type: 'boolean', description: 'Можно ли пропустить нажатием клавиши (по умолч. false).' },
+        music: {
+          type: 'object',
+          description: 'Опц. фоновая музыка/эмбиент (напр. пугающая). {soundId, volume, fadeIn, fadeOut}.',
+          properties: {
+            soundId: { type: 'string', description: 'rbxassetid:// или число.' },
+            volume: { type: 'number' }, fadeIn: { type: 'number' }, fadeOut: { type: 'number' },
+          },
+        },
+        lighting: {
+          type: 'object',
+          description: 'Опц. настроение через освещение (восстановится после катсцены). ' +
+            'Поля: clockTime (0=ночь,14=день), brightness, exposure, fogStart, fogEnd, fogColor "#RRGGBB", ambient "#RRGGBB".',
+        },
         frames: {
           type: 'array',
           description: 'Ключевые кадры камеры по порядку.',
@@ -800,10 +931,26 @@ export const TOOLS = [
             properties: {
               position: { type: 'object', description: '{x,y,z} позиция камеры (studs).' },
               lookAt: { type: 'object', description: '{x,y,z} точка, на которую смотрит камера.' },
+              focus: { type: 'string', description: 'Путь к объекту/NPC — камера наведётся на него (вместо lookAt).' },
+              focusFace: { type: 'boolean', description: 'Поставить камеру ПЕРЕД лицом NPC (по его развороту). С focus.' },
+              distance: { type: 'number', description: 'Дистанция камеры до лица при focusFace (по умолч. 8).' },
+              faceHeight: { type: 'number', description: 'Высота лица над основанием при focusFace (по умолч. 2.5).' },
               duration: { type: 'number', description: 'Время перехода к этому кадру (сек).' },
               easingStyle: { type: 'string', description: 'Sine, Quad, Cubic, Linear… (по умолчанию Sine).' },
+              fov: { type: 'number', description: 'Угол обзора (зум). Меньше = ближе/драматичнее.' },
+              shake: { type: 'number', description: 'Тряска камеры (studs, напр. 0.2–0.6 для напряжения).' },
+              hold: { type: 'number', description: 'Пауза на этом кадре после прихода, сек.' },
+              flash: { type: 'object', description: 'Вспышка на кадре: {color "#RRGGBB", duration}. Можно в конце.' },
+              sound: { type: 'object', description: 'Разовый звук-стинг на кадре: {soundId, volume}.' },
+              anim: {
+                type: 'object',
+                description: 'Проиграть анимацию на NPC на этом кадре: {target (путь к модели с Humanoid), animationId, looped, speed}.',
+              },
+              moveTo: {
+                type: 'object',
+                description: 'Заставить NPC идти: {target (путь к модели с Humanoid), position {x,y,z}}.',
+              },
             },
-            required: ['position', 'lookAt'],
           },
         },
       },

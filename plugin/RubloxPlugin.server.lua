@@ -17,7 +17,7 @@ local CollectionService = game:GetService("CollectionService")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 
 -- ── Конфигурация (можно поменять в полях UI) ──────────
-local PLUGIN_VERSION = "0.5.5" -- версия плагина (сервер сверяет и подсказывает обновление)
+local PLUGIN_VERSION = "0.5.6" -- версия плагина (сервер сверяет и подсказывает обновление)
 local serverUrl = "http://localhost:8787"
 local token = "change-me"
 local connected = false
@@ -251,9 +251,16 @@ updateBtn.MouseButton1Click:Connect(doPluginUpdate)
 local function toolRunCode(args)
 	local code = args.code or ""
 	local mod = Instance.new("ModuleScript")
-	mod.Name = "Rublox_RunCode_" .. tostring(math.random(1, 1e6))
+	local nm = "Rublox_RunCode_" .. tostring(math.random(1, 1e6))
+	mod.Name = nm
 	-- Оборачиваем код в функцию-модуль, возвращающую результат.
 	mod.Source = "return function()\n" .. code .. "\nend"
+	-- require() прячет настоящую ошибку компиляции за «Requested module experienced
+	-- an error while loading». Перехватываем реальный текст из консоли (LogService).
+	local realErr = nil
+	local conn = LogService.MessageOut:Connect(function(msg, t)
+		if t == Enum.MessageType.MessageError then realErr = msg end
+	end)
 	mod.Parent = ServerStorage
 	local ok, fnOrErr = pcall(require, mod)
 	local result
@@ -261,8 +268,13 @@ local function toolRunCode(args)
 		local ran, ret = pcall(fnOrErr)
 		result = ran and ("ok: " .. tostring(ret)) or ("runtime error: " .. tostring(ret))
 	else
-		result = "compile error: " .. tostring(fnOrErr)
+		if not realErr then pcall(function() task.wait() end) end -- дать консоли флашнуться
+		local detail = realErr or tostring(fnOrErr)
+		-- Чистим внутреннее имя модуля из текста для читаемости.
+		detail = tostring(detail):gsub(nm, "code")
+		result = "compile error: " .. detail
 	end
+	pcall(function() conn:Disconnect() end)
 	mod:Destroy()
 	return result
 end
@@ -272,13 +284,26 @@ local function toolInsertModel(args)
 	if not assetId then
 		error("assetId не указан")
 	end
-	local objects = InsertService:LoadAsset(assetId)
-	objects.Parent = workspace
+	-- LoadAsset падает «User is not authorized to access Asset», если ассет
+	-- приватный/не принадлежит владельцу плейса. Ловим и даём понятную подсказку,
+	-- чтобы модель взяла ДРУГУЮ (бесплатную из тулбокса через search_assets).
+	local ok, objects = pcall(function() return InsertService:LoadAsset(assetId) end)
+	if not ok or not objects then
+		local msg = tostring(objects or "")
+		if msg:find("not authorized") or msg:find("authorized to access") then
+			error("Ассет " .. assetId .. " недоступен (приватный или не принадлежит владельцу плейса). " ..
+				"Возьмите БЕСПЛАТНУЮ модель из тулбокса через search_assets и вставьте её assetId.")
+		end
+		error("Не удалось вставить ассет " .. assetId .. ": " .. msg)
+	end
+	local parent = (args.parent and args.parent ~= "") and resolvePath(args.parent) or workspace
+	local inserted = 0
 	for _, child in ipairs(objects:GetChildren()) do
-		child.Parent = workspace
+		child.Parent = parent
+		inserted = inserted + 1
 	end
 	objects:Destroy()
-	return "Ассет " .. assetId .. " вставлен в Workspace"
+	return "Ассет " .. assetId .. " вставлен (" .. inserted .. " объект(ов)) в " .. parent:GetFullName()
 end
 
 local function toolGetConsole(args)
@@ -461,9 +486,18 @@ end
 local function applyProps(inst, props)
 	local applied, errors = {}, {}
 	for key, val in pairs(props or {}) do
-		local ok, err = pcall(function()
-			inst[key] = parseValue(val)
-		end)
+		local v = parseValue(val)
+		local ok, err = pcall(function() inst[key] = v end)
+		-- Авто-конверсия Color3↔BrickColor: старые свойства (BodyColors.HeadColor,
+		-- SpawnLocation.TeamColor и т.п.) ждут BrickColor, а модель часто шлёт Color3
+		-- (и наоборот). При несовпадении типа цвета пробуем сконвертировать.
+		if not ok and typeof(v) == "Color3" then
+			local ok2 = pcall(function() inst[key] = BrickColor.new(v) end)
+			if ok2 then ok = true end
+		elseif not ok and typeof(v) == "BrickColor" then
+			local ok2 = pcall(function() inst[key] = v.Color end)
+			if ok2 then ok = true end
+		end
 		if ok then
 			table.insert(applied, key)
 		else
@@ -929,64 +963,121 @@ local function toolBuildRoom(args)
 		makePart("Ceiling", CFrame.new(cx, ceilY, cz), Vector3.new(w, t, d), args.ceilingColor or wallColor, args.ceilingMaterial or wallMat, model)
 	end
 
-	-- Проёмы: список { side = "north|south|east|west", offset = 0 (по центру стены), width, height }.
-	-- Стена с проёмом разбивается на левый/правый сегмент + перемычку сверху.
+	-- Проёмы: двери (от пола) и окна (с подоконником). Каждый разбивает стену на
+	-- сегменты слева/справа + перемычку сверху, у окна ещё подоконник снизу и стекло.
+	-- doorways: { side, offset, width, height, door=true? (навесить открывающуюся дверь) }
+	-- windows:  { side, offset, width, height, sill (высота от пола до низа окна) }
 	local doors = {}
-	for _, dr in ipairs(args.doorways or {}) do
-		local side = tostring(dr.side or "south")
+	local function addOpening(side, o)
 		doors[side] = doors[side] or {}
-		table.insert(doors[side], {
+		table.insert(doors[side], o)
+	end
+	for _, dr in ipairs(args.doorways or {}) do
+		addOpening(tostring(dr.side or "south"), {
 			offset = tonumber(dr.offset) or 0,
 			width = tonumber(dr.width) or 7,
-			height = tonumber(dr.height) or 10,
+			bottom = 0,
+			top = tonumber(dr.height) or 10,
+			door = dr.door == true,
+			kind = "door",
+		})
+	end
+	for _, wn in ipairs(args.windows or {}) do
+		local sill = tonumber(wn.sill) or 4
+		addOpening(tostring(wn.side or "south"), {
+			offset = tonumber(wn.offset) or 0,
+			width = tonumber(wn.width) or 6,
+			bottom = sill,
+			top = sill + (tonumber(wn.height) or 5),
+			kind = "window",
 		})
 	end
 
 	local midY = floorY + h / 2
+	local DOOR_SCRIPT = [[
+local door = script.Parent
+local TweenService = game:GetService("TweenService")
+local prompt = door:FindFirstChildWhichIsA("ProximityPrompt")
+local closed = door:GetAttribute("ClosedCF") or door.CFrame
+local open = false
+if prompt then
+	prompt.Triggered:Connect(function()
+		open = not open
+		local pivot = closed * CFrame.new(-door.Size.X / 2, 0, 0)
+		local target = open and (pivot * CFrame.Angles(0, math.rad(95), 0) * pivot:Inverse() * closed) or closed
+		TweenService:Create(door, TweenInfo.new(0.5, Enum.EasingStyle.Quad), { CFrame = target }):Play()
+	end)
+end
+]]
 	-- Строит стену вдоль оси с возможными проёмами. horizontal=true → стена тянется по X.
 	local function buildWall(sideName, fixedCoord, horizontal)
 		local length = horizontal and w or d
 		local list = doors[sideName]
+		-- Блок в проёме (подоконник/перемычка/стекло): centerAlong — смещение вдоль
+		-- стены от центра, vert — высота блока, yc — центр по Y, alongLen — ширина.
+		local function block(centerAlong, yc, vert, alongLen, name, col, mat)
+			local cf, size
+			if horizontal then
+				cf = CFrame.new(cx + centerAlong, yc, fixedCoord); size = Vector3.new(alongLen, vert, t)
+			else
+				cf = CFrame.new(fixedCoord, yc, cz + centerAlong); size = Vector3.new(t, vert, alongLen)
+			end
+			return makePart(name, cf, size, col, mat, model)
+		end
 		local function place(segStart, segEnd)
 			local segLen = segEnd - segStart
 			if segLen <= 0.05 then return end
-			local centerAlong = (segStart + segEnd) / 2 - length / 2
-			local cf, size
+			block((segStart + segEnd) / 2 - length / 2, midY, h, segLen, sideName .. "_Wall", wallColor, wallMat)
+		end
+		-- Открывающаяся дверь: створка по центру проёма, петля у левого косяка,
+		-- ProximityPrompt + скрипт плавно поворачивают её (работает в play/игре).
+		local function doorLeaf(along, op)
+			local leafW = math.max(2, op.width - 0.3)
+			local leafH = op.top - 0.3
+			local yc = floorY + leafH / 2 + 0.15
+			local door = Instance.new("Part")
+			door.Name = sideName .. "_Door"; door.Anchored = true; door.CanCollide = true
+			door.Color = colorFromHex(args.doorColor or "#6B4A2B")
+			pcall(function() door.Material = Enum.Material.WoodPlanks end)
+			door.Size = Vector3.new(leafW, leafH, 0.4)
 			if horizontal then
-				cf = CFrame.new(cx + centerAlong, midY, fixedCoord)
-				size = Vector3.new(segLen, h, t)
+				door.CFrame = CFrame.new(cx + along, yc, fixedCoord)
 			else
-				cf = CFrame.new(fixedCoord, midY, cz + centerAlong)
-				size = Vector3.new(t, h, segLen)
+				door.CFrame = CFrame.new(fixedCoord, yc, cz + along) * CFrame.Angles(0, math.rad(90), 0)
 			end
-			makePart(sideName .. "_Wall", cf, size, wallColor, wallMat, model)
+			door:SetAttribute("ClosedCF", door.CFrame)
+			door.Parent = model
+			local prompt = Instance.new("ProximityPrompt")
+			prompt.ActionText = "Открыть/закрыть"; prompt.ObjectText = "Дверь"
+			prompt.HoldDuration = 0; prompt.MaxActivationDistance = 12; prompt.Parent = door
+			local s = Instance.new("Script"); s.Name = "DoorOpener"; s.Source = DOOR_SCRIPT; s.Parent = door
 		end
-		if not list or #list == 0 then
-			place(0, length)
-			return
-		end
-		-- Сортируем проёмы по позиции и строим сегменты между ними.
+		if not list or #list == 0 then place(0, length); return end
 		table.sort(list, function(a, b) return a.offset < b.offset end)
 		local cursor = 0
-		for _, dr in ipairs(list) do
-			local doorCenter = length / 2 + dr.offset
-			local left = doorCenter - dr.width / 2
-			local right = doorCenter + dr.width / 2
+		for _, op in ipairs(list) do
+			local center = length / 2 + op.offset
+			local left = center - op.width / 2
+			local right = center + op.width / 2
 			place(cursor, math.max(cursor, left))
-			-- Перемычка над проёмом (от верха двери до потолка).
-			local lintelH = h - dr.height
-			if lintelH > 0.05 then
-				local along = (left + right) / 2 - length / 2
-				local cf, size
-				if horizontal then
-					cf = CFrame.new(cx + along, floorY + dr.height + lintelH / 2, fixedCoord)
-					size = Vector3.new(dr.width, lintelH, t)
-				else
-					cf = CFrame.new(fixedCoord, floorY + dr.height + lintelH / 2, cz + along)
-					size = Vector3.new(t, lintelH, dr.width)
-				end
-				makePart(sideName .. "_Lintel", cf, size, wallColor, wallMat, model)
+			local along = (left + right) / 2 - length / 2
+			-- Подоконник снизу (для окна).
+			if op.bottom and op.bottom > 0.05 then
+				block(along, floorY + op.bottom / 2, op.bottom, op.width, sideName .. "_Sill", wallColor, wallMat)
 			end
+			-- Перемычка сверху (от верха проёма до потолка).
+			local lintelH = h - op.top
+			if lintelH > 0.05 then
+				block(along, floorY + op.top + lintelH / 2, lintelH, op.width, sideName .. "_Lintel", wallColor, wallMat)
+			end
+			-- Стекло окна.
+			if op.kind == "window" then
+				local glass = block(along, floorY + (op.bottom + op.top) / 2, op.top - op.bottom, op.width, sideName .. "_Glass", "#AFE3F0", "Glass")
+				glass.Transparency = 0.55
+				pcall(function() glass.Reflectance = 0.1 end)
+			end
+			-- Открывающаяся дверь.
+			if op.kind == "door" and op.door then doorLeaf(along, op) end
 			cursor = right
 		end
 		place(cursor, length)
@@ -1003,6 +1094,172 @@ local function toolBuildRoom(args)
 	local n = #model:GetChildren()
 	return "Комната «" .. model.Name .. "» построена: " .. n .. " частей, " ..
 		w .. "×" .. d .. "×" .. h .. " studs в " .. model:GetFullName()
+end
+
+-- build_stairs строит РОВНУЮ сплошную лестницу N ступеней (вместо кривой ручной
+-- генерации кодом). Поднимается вдоль direction; каждая ступень — заполненный блок.
+local function toolBuildStairs(args)
+	local parent = (args.parent and args.parent ~= "") and resolvePath(args.parent) or workspace
+	local model = Instance.new("Model")
+	model.Name = args.name or "Stairs"
+	local steps = math.max(1, math.floor(tonumber(args.steps) or 12))
+	local width = tonumber(args.width) or 8
+	local stepH = tonumber(args.stepHeight) or 1.2
+	local stepD = tonumber(args.stepDepth) or 2
+	local px = tonumber((args.position or {}).x) or 0
+	local py = tonumber((args.position or {}).y) or 0
+	local pz = tonumber((args.position or {}).z) or 0
+	local col = args.color or "#8A8A8A"
+	local mat = args.material or "Concrete"
+	local rot = ({ north = 0, east = 90, south = 180, west = 270 })[tostring(args.direction or "north")] or 0
+	local baseCF = CFrame.new(px, py, pz) * CFrame.Angles(0, math.rad(rot), 0)
+	for i = 1, steps do
+		local hy = i * stepH
+		makePart("Step" .. i, baseCF * CFrame.new(0, hy / 2, (i - 0.5) * stepD),
+			Vector3.new(width, hy, stepD), col, mat, model)
+	end
+	model.Parent = parent
+	return "Лестница «" .. model.Name .. "»: " .. steps .. " ступ., подъём " ..
+		string.format("%.1f", steps * stepH) .. " studs, в " .. model:GetFullName()
+end
+
+-- Хелпер: тройка координат из args.position.
+local function pos3(args)
+	local p = args.position or {}
+	return tonumber(p.x) or 0, tonumber(p.y) or 0, tonumber(p.z) or 0
+end
+
+-- build_floor: ровная плита (пол/потолок/платформа/дорога) по реальным размерам.
+local function toolBuildFloor(args)
+	local parent = (args.parent and args.parent ~= "") and resolvePath(args.parent) or workspace
+	local w = tonumber(args.width) or 40
+	local d = tonumber(args.depth) or 40
+	local t = tonumber(args.thickness) or 1
+	local px, py, pz = pos3(args)
+	makePart(args.name or "Floor", CFrame.new(px, py, pz), Vector3.new(w, t, d),
+		args.color or "#5A5A5A", args.material or "Concrete", parent)
+	return "Плита «" .. (args.name or "Floor") .. "» " .. w .. "×" .. d .. " построена."
+end
+
+-- build_roof: крыша над прямоугольником. style: "gable" (двускатная) | "flat" | "hip".
+local function toolBuildRoof(args)
+	local parent = (args.parent and args.parent ~= "") and resolvePath(args.parent) or workspace
+	local w = tonumber(args.width) or 40
+	local d = tonumber(args.depth) or 40
+	local rise = tonumber(args.height) or 8
+	local t = tonumber(args.thickness) or 1
+	local px, py, pz = pos3(args)
+	local col = args.color or "#7A3B2E"
+	local mat = args.material or "Slate"
+	local style = tostring(args.style or "gable")
+	local model = Instance.new("Model"); model.Name = args.name or "Roof"
+	if style == "flat" then
+		makePart("RoofSlab", CFrame.new(px, py + t / 2, pz), Vector3.new(w, t, d), col, mat, model)
+	else
+		-- Двускатная: конёк вдоль X, два ската наклонены по Z.
+		local half = d / 2
+		local slopeLen = math.sqrt(half * half + rise * rise)
+		local angle = math.atan(rise / half)
+		for _, sgn in ipairs({ -1, 1 }) do
+			local cf = CFrame.new(px, py + rise / 2, pz + sgn * d / 4) * CFrame.Angles(sgn * angle, 0, 0)
+			makePart("RoofSlope", cf, Vector3.new(w, t, slopeLen), col, mat, model)
+		end
+		-- Фронтоны-треугольники по торцам (тонкие закрывающие стены).
+		for _, sgn in ipairs({ -1, 1 }) do
+			makePart("Gable", CFrame.new(px + sgn * w / 2, py + rise / 2, pz), Vector3.new(t, rise, d * 0.04), col, mat, model)
+		end
+	end
+	model.Parent = parent
+	return "Крыша «" .. model.Name .. "» (" .. style .. ") построена."
+end
+
+-- build_pillar: колонны/столбы. positions — список {x,y,z}; или одна position.
+local function toolBuildPillar(args)
+	local parent = (args.parent and args.parent ~= "") and resolvePath(args.parent) or workspace
+	local positions = args.positions
+	if type(positions) ~= "table" or #positions == 0 then
+		local px, py, pz = pos3(args); positions = { { x = px, y = py, z = pz } }
+	end
+	local h = tonumber(args.height) or 14
+	local s = tonumber(args.size) or 2
+	local shape = tostring(args.shape or "box")
+	local col = args.color or "#9A9A9A"
+	local mat = args.material or "Concrete"
+	local model = Instance.new("Model"); model.Name = args.name or "Pillars"
+	local n = 0
+	for _, pp in ipairs(positions) do
+		local px, py, pz = tonumber(pp.x) or 0, tonumber(pp.y) or 0, tonumber(pp.z) or 0
+		local p = makePart("Pillar", CFrame.new(px, py + h / 2, pz), Vector3.new(s, h, s), col, mat, model)
+		if shape == "cylinder" then
+			pcall(function()
+				p.Shape = Enum.PartType.Cylinder
+				p.Size = Vector3.new(h, s, s)
+				p.CFrame = CFrame.new(px, py + h / 2, pz) * CFrame.Angles(0, 0, math.rad(90))
+			end)
+		end
+		n = n + 1
+	end
+	model.Parent = parent
+	return "Колонны: " .. n .. " шт. в " .. model:GetFullName()
+end
+
+-- build_fence: забор/ограждение по ломаной points ({x,y,z}). Посты в точках +
+-- две перекладины между соседними точками.
+local function toolBuildFence(args)
+	local parent = (args.parent and args.parent ~= "") and resolvePath(args.parent) or workspace
+	local pts = args.points
+	if type(pts) ~= "table" or #pts < 2 then error("Нужно ≥2 точек (points) для забора.") end
+	local h = tonumber(args.height) or 5
+	local col = args.color or "#6B4A2B"
+	local mat = args.material or "Wood"
+	local model = Instance.new("Model"); model.Name = args.name or "Fence"
+	for _, p in ipairs(pts) do
+		makePart("Post", CFrame.new(tonumber(p.x) or 0, (tonumber(p.y) or 0) + h / 2, tonumber(p.z) or 0),
+			Vector3.new(0.6, h, 0.6), col, mat, model)
+	end
+	for i = 1, #pts - 1 do
+		local a, b = pts[i], pts[i + 1]
+		local ax, az, by = tonumber(a.x) or 0, tonumber(a.z) or 0, tonumber(a.y) or 0
+		local bx, bz = tonumber(b.x) or 0, tonumber(b.z) or 0
+		local len = math.sqrt((bx - ax) ^ 2 + (bz - az) ^ 2)
+		if len > 0.05 then
+			local ang = math.atan2(bz - az, bx - ax)
+			for _, fy in ipairs({ h * 0.85, h * 0.45 }) do
+				makePart("Rail", CFrame.new((ax + bx) / 2, by + fy, (az + bz) / 2) * CFrame.Angles(0, -ang, 0),
+					Vector3.new(len, 0.4, 0.3), col, mat, model)
+			end
+		end
+	end
+	model.Parent = parent
+	return "Забор: " .. #pts .. " постов, в " .. model:GetFullName()
+end
+
+-- build_tree: процедурное дерево из частей (ствол-цилиндр + крона-шары). Решает
+-- «не умеет деревья» без тулбокса (где ассеты часто недоступны).
+local function toolBuildTree(args)
+	local parent = (args.parent and args.parent ~= "") and resolvePath(args.parent) or workspace
+	local px, py, pz = pos3(args)
+	local h = tonumber(args.height) or 18
+	local trunkCol = args.trunkColor or "#5C4326"
+	local leafCol = args.leafColor or "#2E7D32"
+	local model = Instance.new("Model"); model.Name = args.name or "Tree"
+	local trunkH = h * 0.55
+	local trunk = makePart("Trunk", CFrame.new(px, py + trunkH / 2, pz), Vector3.new(1.6, trunkH, 1.6), trunkCol, "Wood", model)
+	pcall(function()
+		trunk.Shape = Enum.PartType.Cylinder
+		trunk.Size = Vector3.new(trunkH, 1.6, 1.6)
+		trunk.CFrame = CFrame.new(px, py + trunkH / 2, pz) * CFrame.Angles(0, 0, math.rad(90))
+	end)
+	local cy = py + trunkH
+	local r = h * 0.34
+	local blobs = { { 0, r * 0.6, 0, r }, { -r * 0.5, r * 0.15, 0, r * 0.7 }, { r * 0.5, r * 0.15, 0, r * 0.7 },
+		{ 0, r * 0.15, -r * 0.5, r * 0.7 }, { 0, r * 0.15, r * 0.5, r * 0.7 } }
+	for _, b in ipairs(blobs) do
+		local leaf = makePart("Leaves", CFrame.new(px + b[1], cy + b[2], pz + b[3]), Vector3.new(b[4], b[4], b[4]), leafCol, "Grass", model)
+		pcall(function() leaf.Shape = Enum.PartType.Ball end)
+	end
+	model.Parent = parent
+	return "Дерево «" .. model.Name .. "» (" .. h .. " studs) в " .. model:GetFullName()
 end
 
 -- Применить реалистичный материал и/или текстуру (обои/кирпич/дерево) к объекту
@@ -1239,54 +1496,341 @@ end
 local function toolCreateCutscene(args)
 	local frames = args.frames or {}
 	if #frames == 0 then error("Нужен хотя бы один кадр (frames).") end
-	-- Собираем Lua-таблицу кадров в исходник.
-	local parts = {}
-	for _, f in ipairs(frames) do
-		local p = f.position or {}
-		local l = f.lookAt or {}
-		table.insert(parts, string.format(
-			"  { pos = Vector3.new(%s,%s,%s), look = Vector3.new(%s,%s,%s), dur = %s, style = %q },",
-			tostring(tonumber(p.x) or 0), tostring(tonumber(p.y) or 10), tostring(tonumber(p.z) or 0),
-			tostring(tonumber(l.x) or 0), tostring(tonumber(l.y) or 0), tostring(tonumber(l.z) or 0),
-			tostring(tonumber(f.duration) or 3), tostring(f.easingStyle or "Sine")
-		))
+	-- Нормализуем конфиг катсцены и отдаём его в рантайм как JSON (чисто и
+	-- расширяемо: легко добавлять опции, не трогая string.format на каждый кадр).
+	local Http = game:GetService("HttpService")
+	local function num(v) return tonumber(v) end
+	local function xyz(t, dy)
+		if type(t) ~= "table" then return nil end
+		return { x = num(t.x) or 0, y = num(t.y) or (dy or 0), z = num(t.z) or 0 }
 	end
-	local framesSrc = "{\n" .. table.concat(parts, "\n") .. "\n}"
+	local cfg = {
+		frames = {},
+		letterbox = args.letterbox ~= false,    -- кинобары на весь экран (по умолч. да)
+		fadeIn = num(args.fadeIn) or 0.8,        -- проявление из чёрного
+		fadeOut = num(args.fadeOut) or 0.8,      -- уход в чёрное в конце
+		skippable = args.skippable == true,      -- по умолч. НЕ пропускать (чтобы W не прерывал)
+	}
+	if type(args.music) == "table" and (args.music.soundId or args.music.assetId) then
+		cfg.music = {
+			soundId = tostring(args.music.soundId or args.music.assetId),
+			volume = num(args.music.volume) or 0.5,
+			fadeIn = num(args.music.fadeIn) or 1.5,
+			fadeOut = num(args.music.fadeOut) or 1.5,
+		}
+	end
+	if type(args.lighting) == "table" then
+		cfg.lighting = {
+			clockTime = num(args.lighting.clockTime), brightness = num(args.lighting.brightness),
+			exposure = num(args.lighting.exposure), fogEnd = num(args.lighting.fogEnd),
+			fogStart = num(args.lighting.fogStart),
+			fogColor = args.lighting.fogColor and tostring(args.lighting.fogColor) or nil,
+			ambient = args.lighting.ambient and tostring(args.lighting.ambient) or nil,
+		}
+	end
+	for _, f in ipairs(frames) do
+		local nf = { duration = num(f.duration) or 3, easingStyle = tostring(f.easingStyle or "Sine") }
+		nf.position = xyz(f.position, 10)
+		nf.lookAt = xyz(f.lookAt, 0)
+		if f.focus and f.focus ~= "" then nf.focus = tostring(f.focus) end
+		if f.focusFace == true then nf.focusFace = true end
+		nf.distance = num(f.distance); nf.faceHeight = num(f.faceHeight)
+		nf.fov = num(f.fov); nf.shake = num(f.shake); nf.hold = num(f.hold)
+		if type(f.flash) == "table" then
+			nf.flash = { color = tostring(f.flash.color or "#FFFFFF"), duration = num(f.flash.duration) or 0.3 }
+		end
+		if type(f.sound) == "table" and (f.sound.soundId or f.sound.assetId) then
+			nf.sound = { soundId = tostring(f.sound.soundId or f.sound.assetId), volume = num(f.sound.volume) or 1 }
+		end
+		if type(f.anim) == "table" and (f.anim.animationId or f.anim.assetId) then
+			nf.anim = { target = tostring(f.anim.target or ""), animationId = tostring(f.anim.animationId or f.anim.assetId),
+				looped = f.anim.looped == true, speed = num(f.anim.speed) or 1 }
+		end
+		if type(f.moveTo) == "table" and f.moveTo.target and type(f.moveTo.position) == "table" then
+			nf.moveTo = { target = tostring(f.moveTo.target), position = xyz(f.moveTo.position, 0) }
+		end
+		table.insert(cfg.frames, nf)
+	end
+	local json = Http:JSONEncode(cfg)
 	local autoStart = args.autoStart ~= false
 	local source = [[
--- Катсцена, сгенерированная Rublox. Двигает камеру по ключевым кадрам.
+-- Кинематографичная катсцена (Rublox). Камера по кадрам + опции: леттербокс,
+-- фейды, музыка, вспышки, FOV-зум, тряска, анимация и движение NPC, освещение.
 local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local SoundService = game:GetService("SoundService")
+local UserInput = game:GetService("UserInputService")
+local Debris = game:GetService("Debris")
 local player = Players.LocalPlayer
 local cam = workspace.CurrentCamera
 
-local FRAMES = ]] .. framesSrc .. [[
+local CFG = game:GetService("HttpService"):JSONDecode([==[]] .. json .. [[]==])
 
-local function playCutscene()
-	cam.CameraType = Enum.CameraType.Scriptable
-	if #FRAMES > 0 then
-		cam.CFrame = CFrame.lookAt(FRAMES[1].pos, FRAMES[1].look)
+local function hexColor(h)
+	h = tostring(h or ""):gsub("#", "")
+	if #h < 6 then return Color3.new(1, 1, 1) end
+	return Color3.fromRGB(tonumber(h:sub(1, 2), 16) or 255, tonumber(h:sub(3, 4), 16) or 255, tonumber(h:sub(5, 6), 16) or 255)
+end
+local function v3(t)
+	if type(t) ~= "table" then return Vector3.new(0, 0, 0) end
+	return Vector3.new(t.x or 0, t.y or 0, t.z or 0)
+end
+local function easing(name)
+	local ok, e = pcall(function() return Enum.EasingStyle[name] end)
+	if ok and e then return e end
+	return Enum.EasingStyle.Sine
+end
+local function soundUrl(id)
+	id = tostring(id or "")
+	if id ~= "" and not string.find(id, "://") then id = "rbxassetid://" .. id end
+	return id
+end
+-- Разрешение пути к объекту в Play (game.Workspace.NPC / Workspace.NPC / NPC).
+local function resolve(path)
+	if type(path) ~= "string" or path == "" then return nil end
+	local node = nil
+	for token in string.gmatch(path, "[^%.]+") do
+		if node == nil then
+			if token == "game" or token == "Game" then node = game
+			elseif token == "workspace" or token == "Workspace" then node = workspace
+			else node = workspace:FindFirstChild(token) end
+		elseif node == game and (token == "workspace" or token == "Workspace") then
+			node = workspace
+		else
+			node = node:FindFirstChild(token)
+		end
+		if node == nil then return nil end
 	end
-	for i = 2, #FRAMES do
-		local f = FRAMES[i]
-		local goal = CFrame.lookAt(f.pos, f.look)
-		local info = TweenInfo.new(f.dur, Enum.EasingStyle[f.style] or Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-		local proxy = Instance.new("CFrameValue")
-		proxy.Value = cam.CFrame
-		local conn = RunService.RenderStepped:Connect(function()
-			cam.CFrame = proxy.Value
-		end)
-		local tween = TweenService:Create(proxy, info, { Value = goal })
-		tween:Play()
-		tween.Completed:Wait()
-		conn:Disconnect()
-		proxy:Destroy()
+	return node
+end
+local function rootOf(inst)
+	if not inst then return nil end
+	if inst:IsA("Model") then
+		return inst:FindFirstChild("HumanoidRootPart") or inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart")
+	elseif inst:IsA("BasePart") then
+		return inst
 	end
-	cam.CameraType = Enum.CameraType.Custom
+	return nil
+end
+local function posOf(inst)
+	local r = rootOf(inst)
+	if r then return r.Position end
+	if inst and inst:IsA("Model") then
+		local ok, cf = pcall(function() return inst:GetPivot() end)
+		if ok then return cf.Position end
+	end
+	return nil
+end
+local function humanoidOf(inst)
+	if not inst then return nil end
+	if inst:IsA("Humanoid") then return inst end
+	if inst:IsA("Model") then return inst:FindFirstChildOfClass("Humanoid") end
+	return nil
 end
 
-]] .. (autoStart and "playCutscene()\n" or "-- Вызови playCutscene(), когда нужно\nreturn playCutscene\n")
+-- Полноэкранный GUI: кинобары, фейд и вспышка.
+local gui = Instance.new("ScreenGui")
+gui.Name = "RubloxCutscene"
+gui.IgnoreGuiInset = true
+gui.ResetOnSpawn = false
+gui.DisplayOrder = 10000
+gui.Parent = player:WaitForChild("PlayerGui")
+local function overlay(z, color, trans)
+	local fr = Instance.new("Frame")
+	fr.Size = UDim2.fromScale(1, 1)
+	fr.BackgroundColor3 = color
+	fr.BackgroundTransparency = trans
+	fr.BorderSizePixel = 0
+	fr.ZIndex = z
+	fr.Parent = gui
+	return fr
+end
+local fade = overlay(50, Color3.new(0, 0, 0), 1)
+local flash = overlay(60, Color3.new(1, 1, 1), 1)
+local barTop, barBottom
+if CFG.letterbox then
+	barTop = overlay(40, Color3.new(0, 0, 0), 0)
+	barTop.Size = UDim2.new(1, 0, 0.12, 0)
+	barTop.Position = UDim2.new(0, 0, -0.12, 0)
+	barBottom = overlay(40, Color3.new(0, 0, 0), 0)
+	barBottom.Size = UDim2.new(1, 0, 0.12, 0)
+	barBottom.Position = UDim2.new(0, 0, 1, 0)
+end
+local function anim(obj, t, props, style, dir)
+	local info = TweenInfo.new(t, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out)
+	local tw = TweenService:Create(obj, info, props)
+	tw:Play()
+	return tw
+end
+
+-- Освещение: сохраняем и восстанавливаем (иначе мир останется тёмным).
+local savedLight = {}
+local function applyLighting(L)
+	if type(L) ~= "table" then return end
+	local map = { clockTime = "ClockTime", brightness = "Brightness", exposure = "ExposureCompensation", fogEnd = "FogEnd", fogStart = "FogStart" }
+	for k, prop in pairs(map) do
+		if tonumber(L[k]) then
+			savedLight[prop] = Lighting[prop]
+			pcall(function() Lighting[prop] = tonumber(L[k]) end)
+		end
+	end
+	if L.fogColor then savedLight.FogColor = Lighting.FogColor; pcall(function() Lighting.FogColor = hexColor(L.fogColor) end) end
+	if L.ambient then
+		savedLight.Ambient = Lighting.Ambient; savedLight.OutdoorAmbient = Lighting.OutdoorAmbient
+		pcall(function() Lighting.Ambient = hexColor(L.ambient); Lighting.OutdoorAmbient = hexColor(L.ambient) end)
+	end
+end
+local function restoreLighting()
+	for prop, val in pairs(savedLight) do pcall(function() Lighting[prop] = val end) end
+end
+
+local skipped = false
+local skipConn
+if CFG.skippable then
+	skipConn = UserInput.InputBegan:Connect(function(_, gp) if not gp then skipped = true end end)
+end
+
+-- Камера для кадра: focusFace ставит камеру ПЕРЕД лицом NPC (по его LookVector),
+-- focus наводит на объект, иначе берутся явные position/lookAt.
+local function frameGoal(f)
+	local pos, look
+	local target = f.focus and resolve(f.focus) or nil
+	if f.focusFace and target then
+		local r = rootOf(target)
+		if r then
+			local dist = f.distance or 8
+			local hi = f.faceHeight or 2.5
+			pos = r.Position + r.CFrame.LookVector * dist + Vector3.new(0, hi, 0)
+			look = r.Position + Vector3.new(0, hi * 0.6, 0)
+		end
+	end
+	if not pos and f.position then pos = v3(f.position) end
+	if not look then
+		if f.lookAt then look = v3(f.lookAt)
+		elseif target then look = posOf(target) end
+	end
+	if not pos then pos = cam.CFrame.Position end
+	if not look then look = pos + cam.CFrame.LookVector end
+	return CFrame.lookAt(pos, look)
+end
+
+-- События кадра: анимация NPC, ход NPC, звук-стинг, вспышка.
+local function runEvents(f)
+	if f.anim then
+		local hum = humanoidOf(resolve(f.anim.target))
+		if hum then
+			local a = Instance.new("Animation")
+			a.AnimationId = soundUrl(f.anim.animationId)
+			local ok, track = pcall(function()
+				local animator = hum:FindFirstChildOfClass("Animator") or hum
+				return animator:LoadAnimation(a)
+			end)
+			if ok and track then
+				track.Looped = f.anim.looped or false
+				pcall(function() track:AdjustSpeed(f.anim.speed or 1) end)
+				track:Play()
+			end
+		end
+	end
+	if f.moveTo then
+		local hum = humanoidOf(resolve(f.moveTo.target))
+		if hum then hum:MoveTo(v3(f.moveTo.position)) end
+	end
+	if f.sound then
+		local s = Instance.new("Sound")
+		s.SoundId = soundUrl(f.sound.soundId)
+		s.Volume = f.sound.volume or 1
+		s.Parent = SoundService
+		s:Play()
+		Debris:AddItem(s, 8)
+	end
+	if f.flash then
+		flash.BackgroundColor3 = hexColor(f.flash.color)
+		flash.BackgroundTransparency = 0
+		anim(flash, f.flash.duration or 0.3, { BackgroundTransparency = 1 })
+	end
+end
+
+local music
+local function startMusic()
+	if not CFG.music then return end
+	music = Instance.new("Sound")
+	music.Name = "CutsceneMusic"
+	music.SoundId = soundUrl(CFG.music.soundId)
+	music.Looped = true
+	music.Volume = 0
+	music.Parent = SoundService
+	music:Play()
+	anim(music, CFG.music.fadeIn or 1.5, { Volume = CFG.music.volume or 0.5 })
+end
+
+local function teardown()
+	cam.CameraType = Enum.CameraType.Custom
+	restoreLighting()
+	if music then
+		local fo = anim(music, (CFG.music and CFG.music.fadeOut) or 1.5, { Volume = 0 })
+		fo.Completed:Connect(function() if music then music:Destroy() end end)
+	end
+	if skipConn then skipConn:Disconnect() end
+end
+
+local function playCutscene()
+	local frames = CFG.frames or {}
+	if #frames == 0 then return end
+	local ok, err = pcall(function()
+		applyLighting(CFG.lighting)
+		startMusic()
+		cam.CameraType = Enum.CameraType.Scriptable
+		local prevFov = cam.FieldOfView
+		fade.BackgroundTransparency = 0
+		if barTop then
+			anim(barTop, 0.6, { Position = UDim2.new(0, 0, 0, 0) })
+			anim(barBottom, 0.6, { Position = UDim2.new(0, 0, 0.88, 0) })
+		end
+		cam.CFrame = frameGoal(frames[1])
+		if frames[1].fov then cam.FieldOfView = frames[1].fov end
+		anim(fade, CFG.fadeIn or 0.8, { BackgroundTransparency = 1 })
+		runEvents(frames[1])
+		if frames[1].hold and frames[1].hold > 0 then task.wait(frames[1].hold) end
+		for i = 2, #frames do
+			if skipped then break end
+			local f = frames[i]
+			runEvents(f)
+			local goal = frameGoal(f)
+			local dur = f.duration or 3
+			local style = easing(f.easingStyle)
+			local proxy = Instance.new("CFrameValue")
+			proxy.Value = cam.CFrame
+			local shake = f.shake or 0
+			local conn = RunService.RenderStepped:Connect(function()
+				local base = proxy.Value
+				if shake > 0 then
+					base = base * CFrame.new((math.random() - 0.5) * shake, (math.random() - 0.5) * shake, (math.random() - 0.5) * shake * 0.5)
+				end
+				cam.CFrame = base
+			end)
+			local tw = TweenService:Create(proxy, TweenInfo.new(dur, style, Enum.EasingDirection.InOut), { Value = goal })
+			if f.fov then anim(cam, dur, { FieldOfView = f.fov }, style, Enum.EasingDirection.InOut) end
+			tw:Play()
+			tw.Completed:Wait()
+			conn:Disconnect()
+			proxy:Destroy()
+			if f.hold and f.hold > 0 and not skipped then task.wait(f.hold) end
+		end
+		anim(fade, CFG.fadeOut or 0.8, { BackgroundTransparency = 0 }).Completed:Wait()
+		cam.FieldOfView = prevFov
+		teardown()
+		anim(fade, 0.5, { BackgroundTransparency = 1 }).Completed:Wait()
+	end)
+	if not ok then
+		teardown()
+		warn("Rublox cutscene: " .. tostring(err))
+	end
+	if gui then gui:Destroy() end
+end
+]] .. (autoStart and "\nplayCutscene()\n" or "\nreturn playCutscene\n")
 
 	local parentPath = args.parent
 	local parent
@@ -1809,6 +2353,12 @@ local TOOLS = {
 	apply_character_skin = toolApplyCharacterSkin,
 	build_parts = toolBuildParts,
 	build_room = toolBuildRoom,
+	build_stairs = toolBuildStairs,
+	build_floor = toolBuildFloor,
+	build_roof = toolBuildRoof,
+	build_pillar = toolBuildPillar,
+	build_fence = toolBuildFence,
+	build_tree = toolBuildTree,
 	apply_surface = toolApplySurface,
 	add_proximity_prompt = toolAddProximityPrompt,
 	add_click_detector = toolAddClickDetector,

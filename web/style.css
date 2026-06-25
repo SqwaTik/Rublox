@@ -246,8 +246,14 @@ html, body {
   border-radius: 12px; background: var(--panel); overflow: hidden;
   display: flex; flex-direction: column; max-height: 190px;
   box-shadow: 0 6px 22px rgba(0,0,0,0.28); animation: rise 0.2s cubic-bezier(.22,1,.36,1);
+  transition: opacity .45s ease, transform .45s cubic-bezier(.4,0,.2,1), max-height .45s ease, margin .45s ease;
 }
 .planbar.hidden { display: none; }
+/* Плавный уход завершённого плана через 5с: уезжает вниз и тает. */
+.planbar.plan-dismiss {
+  opacity: 0; transform: translateY(14px) scale(.97);
+  max-height: 0; margin-bottom: 0; pointer-events: none;
+}
 .planbar-head {
   display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none;
   padding: 6px 10px; font-size: 12px; flex: none;
