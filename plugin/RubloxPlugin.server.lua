@@ -17,7 +17,7 @@ local CollectionService = game:GetService("CollectionService")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 
 -- ── Конфигурация (можно поменять в полях UI) ──────────
-local PLUGIN_VERSION = "0.5.6" -- версия плагина (сервер сверяет и подсказывает обновление)
+local PLUGIN_VERSION = "0.5.7" -- версия плагина (сервер сверяет и подсказывает обновление)
 local serverUrl = "http://localhost:8787"
 local token = "change-me"
 local connected = false
@@ -2334,6 +2334,266 @@ local function toolApplyCharacterSkin(args)
 	return "Скин применён к " .. char:GetFullName() .. " — " .. table.concat(changed, ", ")
 end
 
+-- ── Само-проверка построек («облёт и анализ») ────────────────────────────
+-- inspect_build анализирует модель/сцену как «глаза» агента: габариты,
+-- висящие в воздухе части, пересечения, узкие проходы, пол-трава в помещении,
+-- неякоренные части. Опц. наводит камеру на объект (агент «подлетает»).
+local function collectParts(root, limit)
+	local parts = {}
+	local function rec(inst)
+		if #parts >= limit then return end
+		for _, c in ipairs(inst:GetChildren()) do
+			if c:IsA("BasePart") then table.insert(parts, c) end
+			if #parts >= limit then return end
+			rec(c)
+		end
+	end
+	if root:IsA("BasePart") then table.insert(parts, root) end
+	rec(root)
+	return parts
+end
+
+local function toolInspectBuild(args)
+	local target
+	if args.path and args.path ~= "" then
+		target = resolvePath(args.path)
+	else
+		local sel = Selection:Get()
+		target = sel[1] or workspace
+	end
+	-- Наводим камеру на объект — «облёт»: агент просит и сам видит через get_studio_context.
+	if args.focusCamera ~= false then
+		pcall(function()
+			if target ~= workspace and target.GetBoundingBox then
+				local cf, size = target:GetBoundingBox()
+				local dist = math.max(size.X, size.Y, size.Z) * 1.4 + 15
+				local cam = workspace.CurrentCamera
+				if cam then
+					cam.CFrame = CFrame.lookAt(cf.Position + Vector3.new(dist, dist * 0.7, dist), cf.Position)
+				end
+			end
+		end)
+	end
+
+	local parts = collectParts(target, tonumber(args.maxParts) or 800)
+	local issues = {}
+	local info = {}
+	if #parts == 0 then
+		return { ok = false, summary = "Объект пуст или не содержит частей.", target = target:GetFullName() }
+	end
+
+	-- Габариты всей сборки.
+	local minV = Vector3.new(math.huge, math.huge, math.huge)
+	local maxV = Vector3.new(-math.huge, -math.huge, -math.huge)
+	local unanchored, lowestY = 0, math.huge
+	for _, p in ipairs(parts) do
+		local s = p.Size
+		minV = Vector3.new(math.min(minV.X, p.Position.X - s.X / 2), math.min(minV.Y, p.Position.Y - s.Y / 2), math.min(minV.Z, p.Position.Z - s.Z / 2))
+		maxV = Vector3.new(math.max(maxV.X, p.Position.X + s.X / 2), math.max(maxV.Y, p.Position.Y + s.Y / 2), math.max(maxV.Z, p.Position.Z + s.Z / 2))
+		if not p.Anchored then unanchored = unanchored + 1 end
+		lowestY = math.min(lowestY, p.Position.Y - s.Y / 2)
+	end
+	local dims = maxV - minV
+	info.size = string.format("%.0f×%.0f×%.0f studs (Ш×В×Г)", dims.X, dims.Y, dims.Z)
+	info.parts = #parts
+	info.center = string.format("%.0f, %.0f, %.0f", (minV.X + maxV.X) / 2, (minV.Y + maxV.Y) / 2, (minV.Z + maxV.Z) / 2)
+
+	if unanchored > 0 then
+		table.insert(issues, unanchored .. " неякоренных частей (Anchored=false) — постройка может развалиться. Заякори.")
+	end
+
+	-- Висящие в воздухе части: низ части заметно выше пола сборки и под ней ничего нет.
+	local floating = 0
+	for _, p in ipairs(parts) do
+		if p.Anchored then
+			local bottom = p.Position.Y - p.Size.Y / 2
+			if bottom > lowestY + 3 then
+				local rayOk = false
+				pcall(function()
+					local params = RaycastParams.new()
+					params.FilterDescendantsInstances = { p }
+					params.FilterType = Enum.RaycastFilterType.Exclude
+					local hit = workspace:Raycast(p.Position, Vector3.new(0, -(bottom - lowestY + 2), 0), params)
+					rayOk = hit ~= nil
+				end)
+				if not rayOk then floating = floating + 1 end
+			end
+		end
+	end
+	if floating > 0 then
+		table.insert(issues, floating .. " частей висят в воздухе (под ними нет опоры) — опусти их или добавь опору.")
+	end
+
+	-- Пол-трава в помещении: если есть потолок/стены и при этом пол с материалом Grass.
+	local hasCeiling, grassFloor = false, false
+	for _, p in ipairs(parts) do
+		local n = string.lower(p.Name)
+		if string.find(n, "ceiling") or string.find(n, "потол") then hasCeiling = true end
+		if (string.find(n, "floor") or string.find(n, "пол")) and p.Material == Enum.Material.Grass then grassFloor = true end
+	end
+	if hasCeiling and grassFloor then
+		table.insert(issues, "В помещении пол из травы (Grass) — для внутреннего пола используй дерево/бетон/плитку, не траву.")
+	end
+
+	-- Узкие проходы: ищем самый большой горизонтальный зазор между крупными частями
+	-- (грубая эвристика для предупреждения о тесноте — коридор < 12 studs).
+	-- Берём bounding box по X/Z крупных «стен» и не считаем точно, но если общая
+	-- ширина < 16 при наличии стен — предупреждаем.
+	if dims.X < 16 or dims.Z < 16 then
+		table.insert(issues, string.format("Постройка узкая (%.0f×%.0f по полу) — игроку может быть тесно; делай проходы ≥12–16 studs.", dims.X, dims.Z))
+	end
+
+	return {
+		ok = #issues == 0,
+		target = target:GetFullName(),
+		info = info,
+		issues = issues,
+		summary = #issues == 0
+			and ("Проверка пройдена. " .. info.size .. ", частей: " .. info.parts .. ". Явных проблем не найдено.")
+			or ("Найдено проблем: " .. #issues .. ". " .. info.size .. ", частей: " .. info.parts),
+	}
+end
+
+-- ── Пометки пользователя в 3D (ПКМ+ЛКМ) ──────────────────────────────────
+-- Пользователь включает режим пометок (set_inspect_mode), кликает по местам
+-- в Studio и пишет, что не так. Агент читает их через get_user_markers и чинит.
+local rubloxMarkers = {}             -- { { pos=Vector3, note=string, n=number } }
+local markerFolder = nil
+local inspectConn = nil
+local inspectActive = false
+
+local function markersFolder()
+	if not markerFolder or not markerFolder.Parent then
+		markerFolder = workspace:FindFirstChild("RubloxMarkers") or Instance.new("Folder")
+		markerFolder.Name = "RubloxMarkers"
+		markerFolder.Parent = workspace
+	end
+	return markerFolder
+end
+
+local function addMarkerAt(pos, note)
+	local n = #rubloxMarkers + 1
+	table.insert(rubloxMarkers, { pos = pos, note = note or "", n = n })
+	-- Визуальный маркер: яркий шар + номер над ним.
+	local m = Instance.new("Part")
+	m.Name = "Marker" .. n
+	m.Shape = Enum.PartType.Ball
+	m.Size = Vector3.new(2, 2, 2)
+	m.Color = Color3.fromRGB(255, 60, 78)
+	m.Material = Enum.Material.Neon
+	m.Anchored = true
+	m.CanCollide = false
+	m.Position = pos
+	m.Parent = markersFolder()
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.new(0, 60, 0, 24)
+	bb.StudsOffset = Vector3.new(0, 2, 0)
+	bb.AlwaysOnTop = true
+	bb.Parent = m
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.fromScale(1, 1)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = "#" .. n
+	lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+	lbl.TextScaled = true
+	lbl.Font = Enum.Font.GothamBold
+	lbl.Parent = bb
+	return n
+end
+
+local function toolSetInspectMode(args)
+	local on = args.enabled == true
+	if on and not inspectActive then
+		inspectActive = true
+		-- Активируем плагин-мышь: клик по детали в Studio ставит маркер.
+		plugin:Activate(true)
+		local mouse = plugin:GetMouse()
+		inspectConn = mouse.Button1Down:Connect(function()
+			local target = mouse.Target
+			local pos = mouse.Hit and mouse.Hit.Position or (target and target.Position)
+			if pos then
+				local n = addMarkerAt(pos, "")
+				log("Метка #" .. n .. " поставлена. Допишите note через приложение или назовите вслух.")
+			end
+		end)
+		return "Режим пометок ВКЛЮЧЁН. Кликайте по проблемным местам в Studio (ЛКМ). " ..
+			"Каждая метка нумеруется. Потом я прочитаю их через get_user_markers и исправлю."
+	elseif not on and inspectActive then
+		inspectActive = false
+		if inspectConn then inspectConn:Disconnect(); inspectConn = nil end
+		pcall(function() plugin:Deactivate() end)
+		return "Режим пометок выключен. Меток собрано: " .. #rubloxMarkers
+	end
+	return "Режим пометок уже " .. (inspectActive and "включён" or "выключен") .. "."
+end
+
+local function toolGetUserMarkers(args)
+	if #rubloxMarkers == 0 then
+		return { markers = {}, summary = "Меток нет. Включи режим пометок (set_inspect_mode enabled=true) и попроси пользователя отметить проблемы кликом." }
+	end
+	local list = {}
+	for _, m in ipairs(rubloxMarkers) do
+		table.insert(list, {
+			n = m.n, note = m.note,
+			position = { x = math.floor(m.pos.X), y = math.floor(m.pos.Y), z = math.floor(m.pos.Z) },
+		})
+	end
+	if args.clear == true then
+		rubloxMarkers = {}
+		pcall(function() if markerFolder then markerFolder:ClearAllChildren() end end)
+	end
+	return { markers = list, summary = #list .. " меток пользователя (места, где что-то не так)." }
+end
+
+-- ── Песочница: строить изолированно → проверить → установить ──────────────
+-- sandbox_build управляет «зоной сборки» в ServerStorage. action:
+--   "open"   — создать пустую песочницу (Model в ServerStorage.RubloxSandbox).
+--              Все последующие постройки можно класть в неё через parent.
+--   "inspect"— проверить содержимое песочницы (как inspect_build).
+--   "commit" — перенести готовую сборку в Workspace (установить).
+--   "discard"— удалить песочницу, ничего не устанавливая.
+-- Это даёт «проверь, потом установи» даже без Play-режима.
+local function sandboxRoot(create)
+	local store = ServerStorage:FindFirstChild("RubloxSandbox")
+	if not store and create then
+		store = Instance.new("Folder")
+		store.Name = "RubloxSandbox"
+		store.Parent = ServerStorage
+	end
+	return store
+end
+
+local function toolSandboxBuild(args)
+	local action = tostring(args.action or "open")
+	if action == "open" then
+		local store = sandboxRoot(true)
+		store:ClearAllChildren()
+		local model = Instance.new("Model")
+		model.Name = args.name or "SandboxBuild"
+		model.Parent = store
+		return "Песочница открыта: ServerStorage.RubloxSandbox." .. model.Name ..
+			". Строй внутрь, передавая parent=\"ServerStorage.RubloxSandbox." .. model.Name ..
+			"\". Потом sandbox_build inspect → commit."
+	elseif action == "inspect" then
+		local store = sandboxRoot(false)
+		local model = store and store:FindFirstChildOfClass("Model")
+		if not model then error("Песочница пуста. Сначала sandbox_build open и построй внутрь.") end
+		return toolInspectBuild({ path = model:GetFullName(), focusCamera = false })
+	elseif action == "commit" then
+		local store = sandboxRoot(false)
+		local model = store and store:FindFirstChildOfClass("Model")
+		if not model then error("Нечего устанавливать: песочница пуста.") end
+		local dest = (args.parent and args.parent ~= "") and resolvePath(args.parent) or workspace
+		model.Parent = dest
+		return "Установлено в " .. dest:GetFullName() .. ": " .. model.Name .. " (проверено в песочнице)."
+	elseif action == "discard" then
+		local store = sandboxRoot(false)
+		if store then store:Destroy() end
+		return "Песочница удалена, ничего не установлено."
+	end
+	error("Неизвестное action. Используй: open | inspect | commit | discard.")
+end
+
 -- Инструменты, которые НЕ создают точку отмены (чтение/навигация/история/камера).
 local NO_WAYPOINT = {
 	get_console_output = true, get_studio_context = true, get_instance_properties = true,
@@ -2341,6 +2601,7 @@ local NO_WAYPOINT = {
 	get_attributes = true, get_tags = true, count_instances = true, search_scripts = true,
 	select_instance = true, focus_camera = true, undo = true, redo = true,
 	start_stop_play = true, run_script_in_play_mode = true,
+	inspect_build = true, get_user_markers = true, set_inspect_mode = true,
 }
 
 local TOOLS = {
@@ -2359,6 +2620,10 @@ local TOOLS = {
 	build_pillar = toolBuildPillar,
 	build_fence = toolBuildFence,
 	build_tree = toolBuildTree,
+	inspect_build = toolInspectBuild,
+	get_user_markers = toolGetUserMarkers,
+	set_inspect_mode = toolSetInspectMode,
+	sandbox_build = toolSandboxBuild,
 	apply_surface = toolApplySurface,
 	add_proximity_prompt = toolAddProximityPrompt,
 	add_click_detector = toolAddClickDetector,

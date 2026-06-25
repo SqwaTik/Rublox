@@ -637,6 +637,61 @@ export const TOOLS = [
     },
   },
   {
+    name: 'inspect_build',
+    description:
+      'САМОПРОВЕРКА постройки («облёт и анализ» — твои глаза). Анализирует модель/выделение: ' +
+      'габариты, число частей, неякоренные части (развалятся), части висящие в воздухе без опоры, ' +
+      'пол из травы в помещении, слишком узкую постройку. Наводит камеру на объект. ' +
+      'ВЫЗЫВАЙ ПОСЛЕ постройки и чини найденные issues, пока не станет ok=true.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Путь к модели/объекту (если пусто — берётся выделение в Studio).' },
+        focusCamera: { type: 'boolean', description: 'Навести камеру на объект (по умолчанию true).' },
+        maxParts: { type: 'number', description: 'Лимит анализируемых частей (по умолчанию 800).' },
+      },
+    },
+  },
+  {
+    name: 'set_inspect_mode',
+    description:
+      'Включить/выключить РЕЖИМ ПОМЕТОК: пользователь кликает в Studio (ЛКМ) по проблемным местам, ' +
+      'ставятся нумерованные метки. Включи (enabled=true), попроси пользователя отметить, что не так, ' +
+      'затем прочитай метки через get_user_markers и исправь. Не забудь выключить (enabled=false).',
+    parameters: {
+      type: 'object',
+      properties: { enabled: { type: 'boolean', description: 'true — включить режим пометок, false — выключить.' } },
+      required: ['enabled'],
+    },
+  },
+  {
+    name: 'get_user_markers',
+    description:
+      'Прочитать метки пользователя (места «тут не так»), расставленные кликом в режиме пометок. ' +
+      'Возвращает список с номером, заметкой и координатами. Анализируй, что рядом с каждой меткой, и чини.',
+    parameters: {
+      type: 'object',
+      properties: { clear: { type: 'boolean', description: 'Очистить метки после прочтения (по умолчанию false).' } },
+    },
+  },
+  {
+    name: 'sandbox_build',
+    description:
+      'ПЕСОЧНICA: строить изолированно → проверить → установить (для качества без риска для сцены). ' +
+      'action: "open" (создать пустую сборку в ServerStorage; строй внутрь, передавая parent из ответа), ' +
+      '"inspect" (проверить песочницу как inspect_build), "commit" (перенести готовое в Workspace), ' +
+      '"discard" (удалить, не устанавливая). Воркфлоу: open → строй в parent → inspect → чини → commit.',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', description: 'open | inspect | commit | discard.' },
+        name: { type: 'string', description: 'Имя сборки (для open).' },
+        parent: { type: 'string', description: 'Куда установить при commit (по умолчанию Workspace).' },
+      },
+      required: ['action'],
+    },
+  },
+  {
     name: 'apply_surface',
     description:
       'РЕАЛИСТИЧНОСТЬ построек: применить материал и/или текстуру (кирпич, дерево, ' +
