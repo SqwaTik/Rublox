@@ -17,7 +17,7 @@ local CollectionService = game:GetService("CollectionService")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 
 -- ── Конфигурация (можно поменять в полях UI) ──────────
-local PLUGIN_VERSION = "0.5.7" -- версия плагина (сервер сверяет и подсказывает обновление)
+local PLUGIN_VERSION = "0.6.2" -- версия плагина; при установке впечатывается версия приложения (plugin-installer)
 local serverUrl = "http://localhost:8787"
 local token = "change-me"
 local connected = false
@@ -2927,7 +2927,8 @@ local TOOLS = {
 local function executeCommand(cmd)
 	local handler = TOOLS[cmd.tool]
 	if not handler then
-		return nil, "Неизвестный инструмент: " .. tostring(cmd.tool)
+		return nil, "Инструмент «" .. tostring(cmd.tool) .. "» неизвестен этому плагину — он УСТАРЕЛ. " ..
+			"Переустанови плагин: нажми «Обновить» в панели Rublox в Studio (или «Установить плагин» в приложении), затем повтори."
 	end
 	local ok, result = pcall(handler, cmd.args or {})
 	if ok then

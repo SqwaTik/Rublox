@@ -107,8 +107,10 @@ const BUILD_RULES =
   'улице/земле. build_room сам ставит правильный пол — не перекрашивай его в траву.\n' +
   '- ПРОХОДЫ И ДВЕРИ просторные: дверной проём ширина ≥7, коридоры ≥12–16 studs. Узкие проходы — ' +
   'частая ошибка, бери шире.\n' +
-  '- ВСТАВКА АССЕТОВ: бери только БЕСПЛАТНЫЕ модели из тулбокса (search_assets). Если insert_model ' +
-  'вернул «ассет недоступен/не авторизован» — это приватный ассет, возьми другой бесплатный, не настаивай.\n' +
+  '- ВСТАВКА АССЕТОВ: assetId БЕРИ ТОЛЬКО из свежего search_assets В ЭТОЙ ЖЕ задаче. НИКОГДА не выдумывай ' +
+  'id и не бери из памяти/прошлых чатов — такие почти всегда приватные и не вставятся. Порядок: search_assets → ' +
+  'возьми id из его ответа → insert_model. Если insert_model вернул «недоступен/не авторизован» — этот ассет ' +
+  'приватный, возьми ДРУГОЙ id из того же ответа search_assets, не настаивай на одном.\n' +
   '- САМОПРОВЕРКА (обязательно для крупных построек): после стройки вызови inspect_build на модели — ' +
   'это твои «глаза» (габариты, висящие части, неякоренное, пол-трава, теснота). Чини найденные issues и ' +
   'проверяй снова, пока ok=true. Так слабые модели достигают качества.\n' +
@@ -313,9 +315,11 @@ export class Session {
     this.contextNotes = Array.isArray(data.contextNotes) ? data.contextNotes : [];
     this.systemPersona = data.systemPersona || '';
     this.createdAt = data.createdAt || null;
+    this.updatedAt = data.savedAt || data.createdAt || null;
   }
 
   persist() {
+    this.updatedAt = new Date().toISOString(); // последняя активность (для сортировки чатов)
     saveSession(this);
   }
 
@@ -442,6 +446,8 @@ export class Session {
       messages: this.messages.length,
       tokens: estimateMessagesTokens(this.messages),
       hasSummary: !!this.summary,
+      createdAt: this.createdAt || null,
+      updatedAt: this.updatedAt || this.createdAt || null,
     };
   }
 
@@ -545,8 +551,9 @@ export function listSessions() {
     const data = sessions.has(id) ? sessions.get(id).info() : summaryFromDisk(id);
     if (data) out.push(data);
   }
-  // Сначала по createdAt (если есть), иначе по id.
-  return out.sort((a, b) => (a.id < b.id ? 1 : -1));
+  // По последней активности (updatedAt) — свежие сверху; запасной ключ — id.
+  const ts = (x) => Date.parse(x.updatedAt || x.createdAt || 0) || 0;
+  return out.sort((a, b) => (ts(b) - ts(a)) || (a.id < b.id ? 1 : -1));
 }
 
 function summaryFromDisk(id) {
@@ -559,5 +566,7 @@ function summaryFromDisk(id) {
     model: d.model,
     thinking: d.thinking || 'high',
     messages: Array.isArray(d.messages) ? d.messages.length : 0,
+    createdAt: d.createdAt || null,
+    updatedAt: d.savedAt || d.createdAt || null,
   };
 }

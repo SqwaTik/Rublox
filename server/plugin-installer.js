@@ -29,12 +29,12 @@ function findPluginLua() {
 // Версия ВСТРОЕННОГО плагина (из исходника) — с ней сервер сравнивает версию
 // плагина, подключённого в Studio, чтобы предлагать переустановку только когда
 // бандл реально новее (а не на каждый апдейт приложения).
+// Версия плагина = версия приложения: при установке мы впечатываем config.version
+// в PLUGIN_VERSION (injectConfig), поэтому «свежий» плагин всегда той же версии,
+// что и приложение. Это чинит баг, когда PLUGIN_VERSION забывали поднять и
+// приложение не предлагало переустановить устаревший плагин в Studio.
 export function bundledPluginVersion() {
-  try {
-    const src = readFileSync(findPluginLua(), 'utf8');
-    const m = src.match(/PLUGIN_VERSION\s*=\s*["']([\d.]+)["']/);
-    return m ? m[1] : config.version;
-  } catch { return config.version; }
+  return config.version;
 }
 
 const buildDir = join(config.dataDir, 'build');
@@ -51,7 +51,9 @@ function injectConfig(lua) {
   const token = getBridgeToken();
   return lua
     .replace(/local serverUrl = "[^"]*"/, `local serverUrl = "${url}"`)
-    .replace(/local token = "[^"]*"/, `local token = "${token}"`);
+    .replace(/local token = "[^"]*"/, `local token = "${token}"`)
+    // Версию плагина синхронизируем с версией приложения автоматически.
+    .replace(/local PLUGIN_VERSION = "[^"]*"/, `local PLUGIN_VERSION = "${config.version}"`);
 }
 
 // Генерирует модель .rbxm (XML внутри) с одним Script — исходником плагина.

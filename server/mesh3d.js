@@ -11,7 +11,7 @@ import { appConfigGet } from './app-config.js';
 
 const MESHY_BASE = process.env.MESHY_BASE_URL || 'https://api.meshy.ai/openapi/v2';
 const TRIPO_BASE = process.env.TRIPO_BASE_URL || 'https://api.tripo3d.ai/v2/openapi';
-const TRIPO_MODEL = process.env.TRIPO_MODEL || 'v2.5';
+const TRIPO_MODEL = process.env.TRIPO_MODEL || ''; // пусто = версия по умолчанию Tripo (избегаем «invalid version»)
 const OPEN_CLOUD_BASE = process.env.ROBLOX_OPEN_CLOUD_BASE || 'https://apis.roblox.com/assets/v1';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -238,14 +238,18 @@ async function generateMeshTripo({ prompt, polycount = 6000, refine = true, onPr
   if (!prompt || !String(prompt).trim()) throw new Error('Пустой prompt для генерации.');
   const faceLimit = Math.max(500, Number(polycount) || 6000);
   return withKey('tripo', async (key) => {
-    const baseId = await tripoCreate(key, {
+    const body = {
       type: 'text_to_model',
       prompt: String(prompt),
-      model_version: TRIPO_MODEL,
       face_limit: faceLimit,
       texture: refine !== false,
       pbr: refine !== false,
-    });
+    };
+    // model_version шлём ТОЛЬКО если задан явно (TRIPO_MODEL): неверное значение
+    // даёт «400 code 2017 The version value is invalid». Без поля Tripo берёт свою
+    // актуальную версию по умолчанию.
+    if (TRIPO_MODEL) body.model_version = TRIPO_MODEL;
+    const baseId = await tripoCreate(key, body);
     const baseTask = await tripoPoll(key, baseId, { onProgress });
     const out = baseTask.output || {};
     const glbUrl = pickUrl(out, 'glb') || out.pbr_model || out.model || '';

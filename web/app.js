@@ -1148,10 +1148,36 @@ function renderChats() {
     list.appendChild(empty);
     return;
   }
+  // Сортировка по последней активности (свежие сверху) + группы по датам.
+  const tsOf = (c) => Date.parse(c.updatedAt || c.createdAt || 0) || 0;
+  const ordered = [...chats].sort((a, b) => tsOf(b) - tsOf(a));
+  const now = new Date();
+  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const today = startOfDay(now);
+  const dayMs = 86400000;
+  function groupLabel(ts) {
+    if (!ts) return window.t('grpEarlier') || 'Ранее';
+    const d = startOfDay(new Date(ts));
+    if (d >= today) return window.t('grpToday') || 'Сегодня';
+    if (d >= today - dayMs) return window.t('grpYesterday') || 'Вчера';
+    if (d >= today - 7 * dayMs) return window.t('grpWeek') || 'На этой неделе';
+    if (d >= today - 30 * dayMs) return window.t('grpMonth') || 'В этом месяце';
+    return window.t('grpEarlier') || 'Ранее';
+  }
+
   const seen = new Set();
-  for (const c of chats) {
+  let lastGroup = null;
+  for (const c of ordered) {
     if (seen.has(c.id)) continue;
     seen.add(c.id);
+    const g = groupLabel(tsOf(c));
+    if (g !== lastGroup) {
+      lastGroup = g;
+      const head = document.createElement('div');
+      head.className = 'chat-group';
+      head.textContent = g;
+      list.appendChild(head);
+    }
     const item = document.createElement('div');
     item.className = 'chat-item' + (c.id === activeChat ? ' active' : '');
     const title = document.createElement('span');

@@ -108,8 +108,11 @@ export async function searchAssets(keyword, assetType = 'model', limit = 12) {
     const ids = items.map((it) => (it.asset && it.asset.id) || it.id).filter(Boolean);
     if (!ids.length) return `По запросу "${kw}" ассетов не найдено.`;
 
-    // Поиск отдаёт только id — имена/авторов берём одним батч-запросом тулбокса.
+    // Поиск отдаёт только id — детали (имя/автор/доступность) берём батчем.
+    // Фильтруем ТОЛЬКО вставляемые: одобренные (isAssetHashApproved) и видимые
+    // (visibilityStatus=1) — приватные/ограниченные модели LoadAsset не вставит.
     let names = {};
+    let haveDetails = false;
     try {
       const d = await fetch(
         `https://apis.roblox.com/toolbox-service/v1/items/details?assetIds=${ids.join(',')}`,
@@ -117,17 +120,26 @@ export async function searchAssets(keyword, assetType = 'model', limit = 12) {
       );
       if (d.ok) {
         const dj = await d.json();
+        haveDetails = Array.isArray(dj.data) && dj.data.length > 0;
         for (const it of dj.data || []) {
-          const id = (it.asset && it.asset.id) || it.id;
+          const a = it.asset || {};
+          const id = a.id || it.id;
           names[id] = {
-            name: (it.asset && it.asset.name) || '',
+            name: a.name || '',
             creator: (it.creator && it.creator.name) || '',
+            // вставляемость: одобрен и публично виден
+            insertable: a.isAssetHashApproved !== false && (a.visibilityStatus === undefined || a.visibilityStatus === 1),
           };
         }
       }
-    } catch { /* имена опциональны */ }
+    } catch { /* детали опциональны */ }
 
-    return ids
+    // Если детали получили — оставляем только вставляемые; иначе (API не ответил)
+    // отдаём как есть, чтобы поиск не ломался полностью.
+    const good = haveDetails ? ids.filter((id) => names[id] && names[id].insertable) : ids;
+    if (!good.length) return `По запросу "${kw}" не нашлось БЕСПЛАТНЫХ вставляемых моделей. Попробуй другое ключевое слово.`;
+
+    return good
       .map((id) => {
         const info = names[id] || {};
         return `assetId ${id}${info.name ? ' — ' + info.name : ''}${info.creator ? ' (автор ' + info.creator + ')' : ''}`;
