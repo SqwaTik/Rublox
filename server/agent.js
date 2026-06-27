@@ -6,7 +6,7 @@
 import { streamComplete } from './llm/providers.js';
 import { bridge } from './bridge.js';
 import { renderTemplate } from './templates.js';
-import { getPcAgent } from './app-config.js';
+import { getPcAgent, getPcAlways } from './app-config.js';
 import { getLuauReference } from './luau-reference.js';
 import { webSearch, webFetch, searchAssets, searchAssetsTyped } from './web.js';
 import { waitForAnswer } from './asks.js';
@@ -209,7 +209,55 @@ function trimResult(s, name) {
 
 // Исполняет один tool-call и возвращает результат для модели.
 // ctx = { chatId, signal, onEvent } — для интерактивных инструментов (ask_user).
+// Валидация обязательных аргументов: модель часто шлёт пустой write/поиск/edit.
+// Вместо мусорного вызова возвращаем понятную корректирующую ошибку — модель
+// видит её в результате инструмента и повторяет с правильными аргументами.
+const isStr = (v) => typeof v === 'string' && v.trim() !== '';
+const ARG_RULES = {
+  web_search: (a) => isStr(a.query) || 'нужен непустой query (что искать).',
+  web_fetch: (a) => isStr(a.url) || 'нужен url.',
+  search_assets: (a) => isStr(a.keyword) || 'нужен непустой keyword (что искать в тулбоксе).',
+  code_search: (a) => isStr(a.query) || 'нужен непустой query.',
+  grep_files: (a) => isStr(a.pattern) || 'нужен непустой pattern (regex/строка поиска).',
+  glob_files: (a) => isStr(a.pattern) || 'нужен непустой pattern (маска, напр. **/*.lua).',
+  read_file: (a) => isStr(a.path) || 'нужен path к файлу.',
+  read_lines: (a) => isStr(a.path) || 'нужен path к файлу.',
+  stat_path: (a) => isStr(a.path) || 'нужен path.',
+  path_exists: (a) => isStr(a.path) || 'нужен path.',
+  delete_path: (a) => isStr(a.path) || 'нужен path.',
+  make_dir: (a) => isStr(a.path) || 'нужен path каталога.',
+  write_file: (a) => !isStr(a.path) ? 'нужен path файла.'
+    : (typeof a.content !== 'string' ? 'нужен content (строка; для пустого файла передай "").' : true),
+  append_file: (a) => !isStr(a.path) ? 'нужен path.'
+    : (typeof a.content !== 'string' ? 'нужен content (что дописать).' : true),
+  edit_file: (a) => !isStr(a.path) ? 'нужен path.'
+    : !isStr(a.oldText) ? 'нужен непустой oldText (что заменить).'
+    : (typeof a.newText !== 'string' ? 'нужен newText (чем заменить).' : true),
+  multi_edit: (a) => !isStr(a.path) ? 'нужен path.'
+    : ((!Array.isArray(a.edits) || a.edits.length === 0) ? 'нужен непустой массив edits [{oldText,newText}].'
+    : (a.edits.some((e) => !e || !isStr(e.oldText)) ? 'в каждом элементе edits нужен непустой oldText.' : true)),
+  move_path: (a) => !isStr(a.from) ? 'нужен from (откуда).' : (!isStr(a.to) ? 'нужен to (куда).' : true),
+  copy_path: (a) => !isStr(a.from) ? 'нужен from (источник).' : (!isStr(a.to) ? 'нужен to (назначение).' : true),
+  write_script: (a) => !isStr(a.source) ? 'нужен непустой source (полный код скрипта — не пустой).'
+    : (!isStr(a.scriptType) ? 'нужен scriptType (Script | LocalScript | ModuleScript).' : true),
+  edit_script: (a) => !isStr(a.path) ? 'нужен path к скрипту.'
+    : !isStr(a.oldText) ? 'нужен непустой oldText (что заменить в скрипте).'
+    : (typeof a.newText !== 'string' ? 'нужен newText (чем заменить).' : true),
+  run_command: (a) => isStr(a.command) || 'нужна непустая command.',
+  run_code_sandbox: (a) => !isStr(a.code) ? 'нужен непустой code для запуска.'
+    : (!isStr(a.language) ? 'нужен language (lua|luau|javascript|python|bash|powershell).' : true),
+};
+function validateArgs(name, args) {
+  const rule = ARG_RULES[name];
+  if (!rule) return null;
+  const r = rule(args || {});
+  if (r === true) return null;
+  return `Инструмент ${name}: ${r} Аргументы пустые/неполные — исправь и вызови инструмент ещё раз (не оставляй поля пустыми).`;
+}
+
 async function runTool(name, args, ctx = {}) {
+  const argErr = validateArgs(name, args);
+  if (argErr) return argErr;
   switch (name) {
     // ── Веб (доступно всегда) ──
     case 'web_search':
@@ -569,7 +617,10 @@ function isAbort(err) {
 export async function runAgent(session, onEvent = () => {}, opts = {}) {
   const signal = opts.signal;
   const studioConnected = bridge.isConnected();
-  const pcAllowed = !studioConnected && getPcAgent();
+  // ПК-инструменты: при выключенном Studio — по тумблеру pcAgent; при подключённом
+  // Studio — если включён pcAlways (по умолчанию да), чтобы можно было «сделать на ПК»
+  // не отключая Studio.
+  const pcAllowed = getPcAgent() && (!studioConnected || getPcAlways());
   let outTokens = 0;
 
   // Гарантируем рабочий провайдер: если выбранный (или дефолтный 'anthropic') не
@@ -596,6 +647,7 @@ export async function runAgent(session, onEvent = () => {}, opts = {}) {
 
   let didTools = false;     // была ли реальная работа (вызовы инструментов)
   let summaryNudged = false; // один раз просили подытожить при пустом финале
+  let continues = 0;        // сколько раз авто-продолжали обрезанный по длине ответ
 
   for (let step = 0; step < SAFETY_CAP; step++) {
     if (signal?.aborted) return 'Остановлено пользователем.';
@@ -639,6 +691,15 @@ export async function runAgent(session, onEvent = () => {}, opts = {}) {
     if (signal?.aborted) return reply.text;
 
     if (!reply.toolCalls || reply.toolCalls.length === 0) {
+      // Ответ обрезан по лимиту длины (модель не дописала) — просим продолжить
+      // ровно с места обрыва. Текст уже сохранён в историю и показан выше.
+      const truncated = reply.stop === 'max_tokens' || reply.stop === 'length';
+      if (truncated && reply.text && reply.text.trim() && continues < 4) {
+        continues++;
+        session.addUser('Твой ответ обрезался по лимиту длины. Продолжи РОВНО с места обрыва — ' +
+          'не повторяй уже написанное и не начинай заново. Если это код — продолжи с той же строки.');
+        continue;
+      }
       // Нормальный финал: есть текст — он уже показан выше, возвращаем его.
       if (reply.text && reply.text.trim()) return reply.text;
       // Пустой финал. Либо модель «оборвалась» (прокси вернул только сырой

@@ -92,6 +92,12 @@ async function handlePluginApi(req, res, url) {
 
   if (url === '/api/roblox/poll' && req.method === 'POST') {
     const body = await readBody(req);
+    // Программа попросила разрыв — велим плагину остановить poll (он покажет
+    // «Отключено» и не будет переподключаться, пока пользователь не нажмёт Connect).
+    if (bridge.forceDisconnect) {
+      bridge.forceDisconnect = false;
+      return sendJson(res, 200, { commands: [], disconnect: true });
+    }
     bridge.markConnected(body.studioInfo);
     const commands = await bridge.poll();
     return sendJson(res, 200, { commands });

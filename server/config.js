@@ -55,7 +55,9 @@ export const config = {
   provider: process.env.LLM_PROVIDER || 'anthropic',
   model: process.env.LLM_MODEL || 'claude-opus-4-8',
   temperature: num(process.env.LLM_TEMPERATURE, 0.7),
-  maxTokens: num(process.env.LLM_MAX_TOKENS, 4096),
+  // 4096 было мало для генерации длинных скриптов/файлов — ответ обрывался на
+  // полуслове. 8192 даёт запас; можно переопределить LLM_MAX_TOKENS.
+  maxTokens: num(process.env.LLM_MAX_TOKENS, 8192),
 
   anthropic: {
     apiKey: process.env.ANTHROPIC_API_KEY || '',

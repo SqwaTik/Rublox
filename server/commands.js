@@ -74,8 +74,8 @@ export async function handleCommand(session, raw) {
     }
 
     case '/disconnect':
-      bridge.markDisconnected();
-      return { handled: true, reply: 'Соединение с Roblox сброшено. Активен локальный режим.' };
+      bridge.requestDisconnect();
+      return { handled: true, reply: 'Соединение с Roblox сброшено (плагин остановит опрос). Активен локальный режим.' };
 
     case '/status':
       return {

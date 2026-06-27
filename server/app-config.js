@@ -71,6 +71,22 @@ export function setPcAgent(value) {
   return v;
 }
 
+// ПК-инструменты доступны ДАЖЕ когда Studio подключён (по умолчанию включено —
+// пользователь часто просит «сделай на ПК» при открытом Studio). Можно
+// отключить, чтобы при подключённом Studio набор был только Studio-инструментов.
+export function getPcAlways() {
+  const stored = read();
+  if (typeof stored.pcAlways === 'boolean') return stored.pcAlways;
+  return true;
+}
+
+export function setPcAlways(value) {
+  const stored = read();
+  const v = !!value;
+  write({ ...stored, pcAlways: v });
+  return v;
+}
+
 // Универсальный доступ к app.json для прочих настроек (скиллы/плагины и т.п.).
 export function appConfigGet(key, fallback) {
   const stored = read();

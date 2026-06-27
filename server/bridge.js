@@ -26,6 +26,7 @@ class RobloxBridge {
     this.pending = new Map(); // id -> { resolve, reject, timer }
     this.consoleBuffer = []; // зеркало консоли Studio (если плагин шлёт)
     this.waiters = []; // ресолверы long-poll, ждущие команду
+    this.forceDisconnect = false; // программа попросила разрыв → плагину велим прекратить poll
   }
 
   // Колбэк, вызываемый при смене состояния подключения (для мгновенного
@@ -43,6 +44,7 @@ class RobloxBridge {
     const wasConnected = this.isConnected();
     const oldPlace = this.studioInfo && this.studioInfo.placeName;
     this.connected = true;
+    this.forceDisconnect = false; // живой poll → снимаем флаг разрыва
     this.lastSeen = Date.now();
     if (info) this.studioInfo = { ...this.studioInfo, ...info };
     const newPlace = this.studioInfo && this.studioInfo.placeName;
@@ -60,6 +62,18 @@ class RobloxBridge {
     this.pending.clear();
     this.queue = [];
     if (this.onChange) this.onChange();
+  }
+
+  // Программный разрыв (кнопка «Отключить» в приложении). В отличие от
+  // markDisconnected, выставляет forceDisconnect: следующий long-poll плагина
+  // получит {disconnect:true} и сам остановит цикл — без «залипания» и
+  // перезапуска Studio. Будим висящие long-poll'ы, чтобы флаг ушёл сразу.
+  requestDisconnect() {
+    this.forceDisconnect = true;
+    const waiters = this.waiters;
+    this.waiters = [];
+    for (const w of waiters) { clearTimeout(w.timer); w.resolve([]); }
+    this.markDisconnected();
   }
 
   // Вызывается агентом: поставить команду и дождаться результата от плагина.

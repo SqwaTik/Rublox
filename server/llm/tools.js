@@ -1759,15 +1759,30 @@ export const TOOLS = [
   {
     name: 'git',
     description:
-      'Безопасный обзор git: action = status | diff | log | branch. Показывает состояние, ' +
-      'не делает опасных операций. Для коммитов/пушей используй run_command по явной просьбе.',
+      'Полный git. action — любая подкоманда: status, diff, log, branch, add, commit, push, pull, ' +
+      'fetch, checkout, switch, merge, reset, restore, stash, clone, init, remote, tag, show, rm, mv, ' +
+      'revert, cherry-pick, rebase, clean — или любая другая (пробрасывается как есть с args). ' +
+      'Удобные параметры: message (commit -m), paths (add/diff/restore/rm), branch/target, remote, create ' +
+      '(новая ветка: checkout -b / switch -c / branch), all (commit -a), hard (reset --hard), staged, ' +
+      'url+dir (clone), limit (log). Для нестандартных флагов используй args (массив аргументов).',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', description: 'status | diff | log | branch.' },
+        action: { type: 'string', description: 'Подкоманда git (status, commit, push, checkout, …). По умолчанию status.' },
         cwd: { type: 'string', description: 'Каталог репозитория.' },
-        staged: { type: 'boolean', description: 'Для diff — показать застейдженное.' },
+        message: { type: 'string', description: 'Сообщение коммита (action=commit).' },
+        paths: { type: 'array', description: 'Файлы/пути для add/diff/restore/rm.' },
+        branch: { type: 'string', description: 'Ветка (push/pull/checkout/switch/merge/branch).' },
+        target: { type: 'string', description: 'Цель для merge/reset/revert/cherry-pick/show.' },
+        remote: { type: 'string', description: 'Имя удалёнки (push/pull/fetch), напр. origin.' },
+        create: { type: 'boolean', description: 'Создать новую ветку (checkout -b / switch -c / branch <name>).' },
+        all: { type: 'boolean', description: 'commit -a (закоммитить все отслеживаемые изменения).' },
+        hard: { type: 'boolean', description: 'reset --hard.' },
+        staged: { type: 'boolean', description: 'diff/restore по застейдженному.' },
+        url: { type: 'string', description: 'URL репозитория для clone.' },
+        dir: { type: 'string', description: 'Каталог назначения для clone.' },
         limit: { type: 'number', description: 'Для log — сколько коммитов.' },
+        args: { type: 'array', description: 'Доп. аргументы/флаги (сырой проброс для любой команды).' },
       },
     },
   },
@@ -1910,7 +1925,7 @@ function pickTools({ studioConnected = false, pcAllowed = false } = {}) {
   return TOOLS.filter((t) => {
     if (ALWAYS_TOOLS.has(t.name)) return true;
     if (WEB_TOOLS.has(t.name)) return true;
-    if (PC_TOOLS.has(t.name)) return !studioConnected && pcAllowed;
+    if (PC_TOOLS.has(t.name)) return pcAllowed; // ПК-инструменты (могут идти и при Studio)
     return studioConnected; // Studio-инструменты
   });
 }

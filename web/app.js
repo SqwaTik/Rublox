@@ -1076,7 +1076,9 @@ chat.addEventListener('scroll', () => {
 });
 
 // ── Статус Studio ──────────────────────────────────────
+let lastStatus = null;
 function renderStatus(s) {
+  lastStatus = s;
   const connected = s && s.connected;
   const chip = $('studioStatus');
   chip.classList.toggle('connected', connected);
@@ -1096,9 +1098,41 @@ function renderStatus(s) {
     dismissNotice('plugin-update');
   }
 }
-$('studioStatus').onclick = async () => {
-  const s = await fetch('/api/status').then((r) => r.json()).catch(() => null);
-  if (s && s.connected) send('/disconnect');
+function renderStudioPopover(s) {
+  const pop = $('studioPopover');
+  const info = (s && s.studioInfo) || {};
+  const row = (label, val) => val == null || val === '' ? '' :
+    `<div class="sp-row"><span class="sp-k">${label}</span><span class="sp-v">${String(val)}</span></div>`;
+  pop.innerHTML =
+    `<div class="sp-head"><span class="sp-dot"></span>${window.t('studioConnected') || 'Studio подключён'}</div>` +
+    row(window.t('spPlace') || 'Плейс', info.placeName || '—') +
+    row('Place ID', info.placeId) +
+    row(window.t('spPlugin') || 'Плагин', info.pluginVersion ? 'v' + info.pluginVersion : null) +
+    row(window.t('spQueued') || 'В очереди', s.queued) +
+    `<button class="ghost-btn danger sp-disc" id="sp-disconnect">${window.t('disconnectStudio') || 'Отключить'}</button>`;
+  pop.querySelector('#sp-disconnect').onclick = () => {
+    send('/disconnect');
+    pop.classList.add('hidden');
+  };
+}
+function toggleStudioPopover() {
+  const pop = $('studioPopover');
+  const wasOpen = !pop.classList.contains('hidden');
+  closePopovers();
+  if (wasOpen) return;
+  renderStudioPopover(lastStatus || {});
+  const r = $('studioStatus').getBoundingClientRect();
+  pop.style.left = Math.min(r.left, window.innerWidth - 320) + 'px';
+  pop.style.top = (r.bottom + 8) + 'px';
+  pop.style.bottom = 'auto';
+  pop.classList.remove('hidden');
+}
+$('studioStatus').onclick = async (e) => {
+  e.stopPropagation();
+  // Подтянем свежий статус (на случай если сокет давно не слал).
+  const s = await fetch('/api/status').then((r) => r.json()).catch(() => lastStatus);
+  if (s) lastStatus = s;
+  if (s && s.connected) toggleStudioPopover();           // подключён → инфо о плейсе (не отключаем!)
   else if (confirm(window.t('confirmInstall'))) installPlugin();
 };
 
@@ -1443,9 +1477,9 @@ function togglePopover(pop, anchor, after) {
   pop.classList.remove('hidden');
   if (after) after();
 }
-function closePopovers() { modelPopover.classList.add('hidden'); $('thinkPopover').classList.add('hidden'); $('usagePopover').classList.add('hidden'); }
+function closePopovers() { modelPopover.classList.add('hidden'); $('thinkPopover').classList.add('hidden'); $('usagePopover').classList.add('hidden'); $('studioPopover').classList.add('hidden'); }
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.popover') && !e.target.closest('.pill')) closePopovers();
+  if (!e.target.closest('.popover') && !e.target.closest('.pill') && !e.target.closest('#studioStatus')) closePopovers();
 });
 
 // ── Настройки ──────────────────────────────────────────

@@ -366,6 +366,7 @@ async function streamAnthropic(p, opts, onDelta) {
   captureLimits(p.id, res.headers);
 
   let text = '';
+  let stop = '';
   const blocks = {}; // index -> { type, id, name, jsonBuf }
 
   await readSSE(res, (raw) => {
@@ -374,6 +375,9 @@ async function streamAnthropic(p, opts, onDelta) {
       ev = JSON.parse(raw);
     } catch {
       return;
+    }
+    if (ev.type === 'message_delta' && ev.delta && ev.delta.stop_reason) {
+      stop = ev.delta.stop_reason; // 'end_turn' | 'tool_use' | 'max_tokens' | …
     }
     if (ev.type === 'content_block_start') {
       const b = ev.content_block || {};
@@ -412,7 +416,7 @@ async function streamAnthropic(p, opts, onDelta) {
       thinking.push({ type: 'redacted_thinking', data: b.data || '' });
     }
   }
-  return { text, toolCalls, thinking };
+  return { text, toolCalls, thinking, stop };
 }
 
 // ── OpenAI-совместимые: преобразование канона ──────────
@@ -500,6 +504,7 @@ async function streamOpenAI(p, opts, onDelta) {
   captureLimits(p.id, res.headers);
 
   let text = '';
+  let stop = '';
   const toolAcc = []; // индекс -> { id, name, argsBuf }
 
   await readSSE(res, (raw) => {
@@ -509,6 +514,8 @@ async function streamOpenAI(p, opts, onDelta) {
     } catch {
       return;
     }
+    const fr = ev.choices?.[0]?.finish_reason;
+    if (fr) stop = fr; // 'stop' | 'tool_calls' | 'length' | …
     const delta = ev.choices?.[0]?.delta || {};
     if (delta.content) {
       text += delta.content;
@@ -532,7 +539,7 @@ async function streamOpenAI(p, opts, onDelta) {
     }
     return { id: t.id, name: t.name, args };
   });
-  return { text, toolCalls };
+  return { text, toolCalls, stop };
 }
 
 // Некоторые модели/прокси НЕ умеют структурный tool-use и «выплёвывают» вызов

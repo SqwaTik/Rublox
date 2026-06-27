@@ -507,21 +507,63 @@ export function processListTool() {
 }
 
 // ── Git-инструмент (безопасный обзор состояния) ──
+// Полный git: удобные пресеты для типовых операций + сырой проброс любой
+// подкоманды через action+args. Покрывает чтение (status/diff/log/branch) и
+// запись (add/commit/push/pull/fetch/checkout/switch/merge/reset/restore/
+// stash/clone/init/remote/tag/show/rm/mv/revert/cherry-pick/rebase/clean) и
+// вообще любую git-команду (action = подкоманда, args = её аргументы).
 export async function gitTool(args) {
   const cwd = args.cwd && existsSync(args.cwd) ? args.cwd : process.cwd();
-  const sub = String(args.action || 'status');
-  const map = {
+  const action = String(args.action || 'status').trim();
+  const paths = Array.isArray(args.paths) ? args.paths.map(String) : [];
+  const extra = Array.isArray(args.args) ? args.args.map(String) : [];
+  const target = String(args.target || args.branch || '').trim();
+
+  const presets = {
     status: ['status', '--short', '--branch'],
-    diff: args.staged ? ['diff', '--staged'] : ['diff'],
+    diff: args.staged ? ['diff', '--staged'] : ['diff', ...paths],
     log: ['log', '--oneline', '-' + (Number(args.limit) || 15)],
-    branch: ['branch', '-vv'],
+    branch: args.create && target ? ['branch', target] : ['branch', '-vv'],
+    add: ['add', ...(paths.length ? paths : ['-A'])],
+    commit: ['commit', ...(args.all ? ['-a'] : []), '-m', String(args.message || 'update')],
+    push: ['push', ...(args.remote ? [String(args.remote)] : []), ...(target ? [target] : []), ...extra],
+    pull: ['pull', ...(args.remote ? [String(args.remote)] : []), ...(target ? [target] : [])],
+    fetch: ['fetch', ...(args.remote ? [String(args.remote)] : ['--all'])],
+    checkout: ['checkout', ...(args.create ? ['-b'] : []), target, ...paths],
+    switch: ['switch', ...(args.create ? ['-c'] : []), target],
+    merge: ['merge', target, ...extra],
+    reset: ['reset', ...(args.hard ? ['--hard'] : []), ...(target ? [target] : [])],
+    restore: ['restore', ...(args.staged ? ['--staged'] : []), ...(paths.length ? paths : ['.'])],
+    stash: ['stash', ...extra],
+    clone: ['clone', String(args.url || ''), ...(args.dir ? [String(args.dir)] : [])],
+    init: ['init'],
+    remote: extra.length ? ['remote', ...extra] : ['remote', '-v'],
+    tag: extra.length ? ['tag', ...extra] : ['tag'],
+    show: ['show', ...(target ? [target] : []), ...extra],
+    rm: ['rm', ...paths, ...extra],
+    mv: ['mv', ...extra],
+    revert: ['revert', '--no-edit', target],
+    'cherry-pick': ['cherry-pick', target],
+    rebase: ['rebase', ...extra],
+    clean: ['clean', ...(extra.length ? extra : ['-nd'])],
   };
-  const gitArgs = map[sub];
-  if (!gitArgs) return 'action: status | diff | log | branch';
+
+  let gitArgs;
+  if (presets[action]) {
+    gitArgs = presets[action].filter((x) => x !== '');
+  } else {
+    // Любая другая git-подкоманда — сырой проброс: git <action> <...args>.
+    gitArgs = [action, ...extra];
+  }
+
   try {
-    const { stdout } = await execFileAsync('git', gitArgs, { cwd, timeout: 20000, windowsHide: true, maxBuffer: 1024 * 1024 * 16 });
-    return clip(stdout) || '(пусто / чисто)';
-  } catch (e) { return `git ${sub}: ${e.message}`; }
+    const { stdout, stderr } = await execFileAsync('git', gitArgs, { cwd, timeout: 90000, windowsHide: true, maxBuffer: 1024 * 1024 * 32 });
+    return clip((stdout || '') + (stderr ? (stdout ? '\n' : '') + stderr : '')) || '(готово / пусто)';
+  } catch (e) {
+    // git часто пишет полезное в stderr и возвращает ненулевой код — отдаём это.
+    const out = ((e.stdout || '') + (e.stderr || '')) || e.message;
+    return `git ${action}: ${clip(out)}`;
+  }
 }
 
 // ── Запуск GUI-приложений и базовое управление окнами ──

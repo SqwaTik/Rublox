@@ -378,6 +378,17 @@ end
 -- ── Работа с Explorer: пути, свойства, создание/удаление ──
 
 -- Разрешить путь вида "game.Workspace.Part" / "Workspace.Model.Part" в Instance.
+-- Последний созданный/затронутый объект — фолбэк, когда модель зовёт инструмент
+-- без path и в Explorer ничего не выделено (частый кейс: «создай X», затем
+-- «покрась его» без явного пути). Сильно снижает ошибку «path не указан».
+local lastInstance = nil
+local function touch(inst)
+	if typeof(inst) == "Instance" and inst ~= game then
+		lastInstance = inst
+	end
+	return inst
+end
+
 local function resolvePath(path)
 	if type(path) ~= "string" or path == "" then
 		-- path не задан — берём выделенный в Explorer объект (частый случай:
@@ -385,7 +396,12 @@ local function resolvePath(path)
 		-- ошибка «path не указан» почти исчезает.
 		local ok, sel = pcall(function() return game:GetService("Selection"):Get() end)
 		if ok and sel and sel[1] then
-			return sel[1]
+			return touch(sel[1])
+		end
+		-- иначе — последний созданный/затронутый объект, если он ещё в дереве.
+		if lastInstance then
+			local alive = pcall(function() return lastInstance.Parent end) and lastInstance.Parent ~= nil
+			if alive then return lastInstance end
 		end
 		error("path не указан и в Studio ничего не выделено. Укажи path вида game.Workspace.Имя или выдели объект в Explorer.")
 	end
@@ -414,7 +430,7 @@ local function resolvePath(path)
 		end
 		node = nextNode
 	end
-	return node
+	return touch(node)
 end
 
 -- Прочитать значение свойства в читаемый вид.
@@ -555,6 +571,7 @@ local function toolCreateInstance(args)
 	if not ok then error("Не удалось создать " .. className .. ": " .. tostring(err)) end
 	if args.properties then applyProps(inst, args.properties) end
 	inst.Parent = parent
+	touch(inst)
 	return "Создан " .. inst:GetFullName()
 end
 
@@ -829,6 +846,7 @@ local function toolCreateScript(args)
 	scr.Name = args.name or class
 	scr.Source = args.source or ""
 	scr.Parent = parent
+	touch(scr)
 	return "Создан " .. class .. ": " .. scr:GetFullName()
 end
 
@@ -886,6 +904,7 @@ local function toolGroupInstances(args)
 		table.insert(grouped, inst.Name)
 	end
 	container.Parent = (args.parent and args.parent ~= "") and resolvePath(args.parent) or (firstParent or workspace)
+	touch(container)
 	return "Сгруппировано (" .. #grouped .. ") в " .. container:GetFullName()
 end
 
@@ -2671,18 +2690,25 @@ local function toolPreview3D(args)
 	if preview3DGui then pcall(function() preview3DGui:Destroy() end) end
 
 	local info = DockWidgetPluginGuiInfo.new(
-		Enum.InitialDockState.Float, true, true, 480, 360, 320, 240)
+		Enum.InitialDockState.Float, true, true, 640, 460, 380, 280)
 	preview3DGui = plugin:CreateDockWidgetPluginGui("RubloxPreview3D", info)
 	preview3DGui.Title = "Rublox 3D: " .. tostring(target.Name or "превью")
 
 	local vp = Instance.new("ViewportFrame")
 	vp.Size = UDim2.new(1, 0, 1, 0)
-	vp.BackgroundColor3 = Color3.fromRGB(28, 30, 36)
-	vp.Ambient = Color3.fromRGB(150, 150, 150)
-	vp.LightColor = Color3.fromRGB(255, 255, 255)
+	vp.BackgroundColor3 = Color3.fromRGB(22, 24, 30)
+	-- Чуть ярче и теплее — постройки выглядят объёмнее, не «плоско».
+	vp.Ambient = Color3.fromRGB(170, 170, 178)
+	vp.LightColor = Color3.fromRGB(255, 248, 235)
 	vp.LightDirection = Vector3.new(-0.4, -1, -0.6)
 	vp.Active = true
 	vp.Parent = preview3DGui
+
+	-- Лёгкий вертикальный градиент фона — приятнее ровной заливки.
+	local bgGrad = Instance.new("UIGradient")
+	bgGrad.Rotation = 90
+	bgGrad.Color = ColorSequence.new(Color3.fromRGB(34, 37, 46), Color3.fromRGB(17, 18, 23))
+	bgGrad.Parent = vp
 
 	-- WorldModel — корректный рендер Model (меши/джойнты).
 	local world = Instance.new("WorldModel")
@@ -2694,16 +2720,30 @@ local function toolPreview3D(args)
 	vp.CurrentCamera = cam
 
 	-- Центр и радиус для облёта.
-	local center, radius
+	local center, radius, bottomY
 	if clone:IsA("Model") then
 		local cf, size = clone:GetBoundingBox()
 		center = cf.Position
 		radius = math.max(size.X, size.Y, size.Z)
+		bottomY = cf.Position.Y - size.Y / 2
 	else
 		center = clone.Position
 		radius = clone.Size.Magnitude
+		bottomY = clone.Position.Y - clone.Size.Y / 2
 	end
 	radius = math.max(radius, 2)
+
+	-- Сетка-пол под объектом: постройка «стоит на земле», виден масштаб.
+	local grid = Instance.new("Part")
+	grid.Anchored = true
+	grid.Size = Vector3.new(radius * 8, 0.4, radius * 8)
+	grid.Position = Vector3.new(center.X, bottomY - 0.2, center.Z)
+	grid.Material = Enum.Material.Grid
+	grid.Color = Color3.fromRGB(60, 64, 74)
+	grid.TopSurface = Enum.SurfaceType.Smooth
+	grid.BottomSurface = Enum.SurfaceType.Smooth
+	grid.Parent = world
+
 	local dist = radius * 1.6 + 4
 
 	local yaw = math.rad(tonumber(args.yaw) or 35)
@@ -2744,8 +2784,62 @@ local function toolPreview3D(args)
 		end
 	end))
 
+	-- Панель управления поверх вьюпорта: пресеты ракурсов + тумблеры.
+	local bar = Instance.new("Frame")
+	bar.Size = UDim2.new(1, 0, 0, 30)
+	bar.BackgroundColor3 = Color3.fromRGB(16, 17, 22)
+	bar.BackgroundTransparency = 0.12
+	bar.BorderSizePixel = 0
+	bar.ZIndex = 5
+	bar.Parent = preview3DGui
+	local blay = Instance.new("UIListLayout")
+	blay.FillDirection = Enum.FillDirection.Horizontal
+	blay.Padding = UDim.new(0, 4)
+	blay.VerticalAlignment = Enum.VerticalAlignment.Center
+	blay.Parent = bar
+	local bpad = Instance.new("UIPadding")
+	bpad.PaddingLeft = UDim.new(0, 6)
+	bpad.Parent = bar
+
+	local function mkBtn(text, w)
+		local b = Instance.new("TextButton")
+		b.Size = UDim2.new(0, w or 54, 0, 22)
+		b.BackgroundColor3 = Color3.fromRGB(40, 43, 52)
+		b.TextColor3 = Color3.fromRGB(235, 235, 240)
+		b.Font = Enum.Font.Gotham
+		b.TextSize = 12
+		b.Text = text
+		b.ZIndex = 6
+		b.Parent = bar
+		local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 5); c.Parent = b
+		return b
+	end
+
+	local function setView(y, p)
+		spin = false
+		yaw = math.rad(y); pitch = math.rad(p)
+		updateCam()
+	end
+	mkBtn("Спереди").MouseButton1Click:Connect(function() setView(0, -10) end)
+	mkBtn("Сбоку").MouseButton1Click:Connect(function() setView(90, -10) end)
+	mkBtn("Сверху").MouseButton1Click:Connect(function() setView(0, -85) end)
+	mkBtn("Изо").MouseButton1Click:Connect(function() setView(35, -30) end)
+	local spinBtn = mkBtn("Вращ: вкл", 76)
+	spinBtn.MouseButton1Click:Connect(function()
+		spin = not spin
+		spinBtn.Text = spin and "Вращ: вкл" or "Вращ: выкл"
+	end)
+	local gridOn = true
+	local gridBtn = mkBtn("Сетка", 76)
+	gridBtn.MouseButton1Click:Connect(function()
+		gridOn = not gridOn
+		grid.Transparency = gridOn and 0 or 1
+		gridBtn.Text = gridOn and "Сетка" or "Без сетки"
+	end)
+
 	preview3DGui.Enabled = true
-	return "Открыл 3D-превью «" .. tostring(target.Name) .. "» в плавающем окне (тяни мышью — поворот, колесо — зум)."
+	return "Открыл 3D-превью «" .. tostring(target.Name) .. "»: ракурсы (Спереди/Сбоку/Сверху/Изо), " ..
+		"вращение и сетку — кнопками сверху; тяни мышью — поворот, колесо — зум."
 end
 
 local NO_WAYPOINT = {
@@ -2902,6 +2996,11 @@ local function pollOnce()
 		error("HTTP " .. tostring(res.StatusCode))
 	end
 	local data = HttpService:JSONDecode(res.Body)
+	-- Сервер (приложение) попросил разрыв — выходим из цикла опроса штатно,
+	-- чтобы соединение не «залипало» и Studio не требовала перезапуска.
+	if data.disconnect then
+		return "DISCONNECT"
+	end
 	for _, cmd in ipairs(data.commands or {}) do
 		log("Команда: " .. cmd.tool)
 		local result, err = executeCommand(cmd)
@@ -2913,6 +3012,7 @@ local function pollOnce()
 end
 
 local pollRunning = false
+local setConnected -- forward-declare: используется внутри startPolling до объявления
 local function startPolling()
 	if pollRunning then
 		return
@@ -2921,7 +3021,12 @@ local function startPolling()
 	task.spawn(function()
 		while connected do
 			local ok, err = pcall(pollOnce)
-			if not ok then
+			if ok and err == "DISCONNECT" then
+				-- приложение разорвало соединение — гасим состояние в плагине
+				log("Приложение отключило соединение.")
+				setConnected(false)
+				break
+			elseif not ok then
 				log("Сбой связи: " .. tostring(err))
 				task.wait(3)
 			else
@@ -2932,7 +3037,7 @@ local function startPolling()
 	end)
 end
 
-local function setConnected(state)
+setConnected = function(state)
 	connected = state
 	if state then
 		statusLabel.Text = "Статус: подключён"
