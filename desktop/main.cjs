@@ -191,6 +191,19 @@ function createWindow() {
     },
   });
   win.loadURL(APP_URL);
+
+  // Внешние ссылки (target="_blank" и попытки уйти с приложения) открываем в
+  // СИСТЕМНОМ браузере пользователя, а не внутри окна Rublox. Внутренние
+  // (localhost / APP_URL) оставляем приложению.
+  const isExternal = (u) => /^https?:\/\//i.test(u) && !u.startsWith(APP_URL) && !/^https?:\/\/localhost(:|\/|$)/i.test(u);
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isExternal(url)) { shell.openExternal(url); return { action: 'deny' }; }
+    return { action: 'allow' };
+  });
+  win.webContents.on('will-navigate', (e, url) => {
+    if (isExternal(url)) { e.preventDefault(); shell.openExternal(url); }
+  });
+
   win.once('ready-to-show', () => { try { win.show(); } catch { /* ok */ } closeSplash(); });
   // Если страница не загрузилась (сервер ещё не готов) — повторяем загрузку.
   win.webContents.on('did-fail-load', () => {
