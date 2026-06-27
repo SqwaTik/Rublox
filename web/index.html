@@ -252,17 +252,18 @@
                 <a class="ext-link" href="https://huggingface.co/spaces/PUM4CH3N/TRELLIS_TextTo3D" target="_blank" rel="noopener"><span data-t="trellisOpen">Открыть Space</span> ↗</a>
               </div>
               <label class="kp-field"><span data-t="trellisSpaceLabel">URL HuggingFace Space</span>
-                <input id="m3-trellis-space" spellcheck="false" placeholder="https://pum4ch3n-trellis-textto3d.hf.space" />
+                <input id="m3-trellis-space" spellcheck="false" placeholder="https://prithivmlmods-trellis-2-text-to-3d.hf.space" />
               </label>
               <label class="kp-field"><span data-t="hfTokenLabel">HF-токен (необязательно)</span>
                 <input id="m3-hf-token" type="password" spellcheck="false" placeholder="hf_…" />
               </label>
               <div class="kp-explain" data-t="trellisHelp">
-                TRELLIS — бесплатная нейросеть Microsoft для генерации 3D из текста, размещённая на Hugging Face.
-                Что делать: 1) открой Space по ссылке выше → нажми три точки → Duplicate this Space (свой стабильный экземпляр) ИЛИ используй публичный;
-                2) скопируй его URL (вида https://ИМЯ.hf.space) сюда; 3) выбери провайдер TRELLIS вверху и сохрани.
-                Как работает: текст → GLB → Rublox сам конвертирует в FBX через Blender (скачается ~300 МБ при первой генерации) → загрузка в Roblox.
-                Важно: публичные Space бывают перегружены (очередь/таймаут) — для надёжности дублируй Space к себе. HF-токен нужен только для приватных Space.
+                TRELLIS — бесплатная нейросеть Microsoft для генерации 3D из текста. ВАЖНО: работает только на GPU. НЕ нажимай Duplicate —
+                копия запустится на бесплатном CPU и упадёт («no NVIDIA driver»). Используй ПУБЛИЧНЫЙ Space (он уже на GPU). Что делать:
+                1) вставь сюда URL публичного Space, напр. https://prithivmlmods-trellis-2-text-to-3d.hf.space ;
+                2) добавь свой HF-токен (huggingface.co/settings/tokens, бесплатный) — без него ZeroGPU быстро упрётся в лимит;
+                3) выбери провайдер TRELLIS вверху и сохрани. Как работает: текст → GLB → Rublox конвертирует в FBX через Blender
+                (~300 МБ при первой генерации) → загрузка в Roblox. У публичных ZeroGPU-Space есть квота — при «quota exceeded» подожди или возьми другой Space.
               </div>
             </div>
 
