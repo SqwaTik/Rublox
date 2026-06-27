@@ -19,7 +19,8 @@ import {
 } from './llm/registry.js';
 import { PROVIDER_TEMPLATES } from './llm/provider-templates.js';
 import { installPlugin, bundledPluginVersion } from './plugin-installer.js';
-import { getBridgeToken, setBridgeToken, regenerateBridgeToken, getPcAgent, setPcAgent } from './app-config.js';
+import { getBridgeToken, setBridgeToken, regenerateBridgeToken, getPcAgent, setPcAgent, appConfigSet } from './app-config.js';
+import { meshConfigDetail, testMeshKeys } from './mesh3d.js';
 import { listSkills, setSkillEnabled, addCustomSkill, removeCustomSkill } from './skills.js';
 import {
   listProjects, getActiveProject, setActiveProject, createProject, updateProject, deleteProject,
@@ -214,6 +215,38 @@ async function handleAppApi(req, res, url) {
   if (url === '/api/pc-agent' && req.method === 'POST') {
     const body = await readBody(req);
     return sendJson(res, 200, { enabled: setPcAgent(body.enabled) });
+  }
+
+  // ── Ключи интеграции генерации 3D (Meshy + Open Cloud) ──
+  if (url === '/api/mesh-config' && req.method === 'GET')
+    return sendJson(res, 200, meshConfigDetail());
+
+  if (url === '/api/mesh-config' && req.method === 'POST') {
+    const body = await readBody(req);
+    // Списки ключей (авто-свап). Принимаем массив или строку (разделители: строки/запятые/пробелы).
+    const toList = (v) => (Array.isArray(v) ? v : String(v || '').split(/[\s,]+/))
+      .map((s) => String(s || '').trim()).filter(Boolean)
+      .filter((s, i, a) => a.indexOf(s) === i);
+    if ('tripoApiKeys' in body) { appConfigSet('tripoApiKeys', toList(body.tripoApiKeys)); appConfigSet('tripoApiKey', ''); }
+    if ('meshyApiKeys' in body) { appConfigSet('meshyApiKeys', toList(body.meshyApiKeys)); appConfigSet('meshyApiKey', ''); }
+    if ('openCloudApiKeys' in body) { appConfigSet('openCloudApiKeys', toList(body.openCloudApiKeys)); appConfigSet('openCloudApiKey', ''); }
+    // Обратная совместимость: одиночные поля.
+    if (typeof body.meshyApiKey === 'string') appConfigSet('meshyApiKey', body.meshyApiKey.trim());
+    if (typeof body.tripoApiKey === 'string') appConfigSet('tripoApiKey', body.tripoApiKey.trim());
+    if (typeof body.openCloudApiKey === 'string') appConfigSet('openCloudApiKey', body.openCloudApiKey.trim());
+    if (typeof body.mesh3dProvider === 'string') appConfigSet('mesh3dProvider', body.mesh3dProvider.trim().toLowerCase());
+    if (body.mesh3dPolycount != null && body.mesh3dPolycount !== '') {
+      const n = Math.min(50000, Math.max(500, Math.round(Number(body.mesh3dPolycount) || 6000)));
+      appConfigSet('mesh3dPolycount', n);
+    }
+    if (typeof body.openCloudUserId === 'string') appConfigSet('openCloudUserId', body.openCloudUserId.trim());
+    if (typeof body.openCloudGroupId === 'string') appConfigSet('openCloudGroupId', body.openCloudGroupId.trim());
+    return sendJson(res, 200, meshConfigDetail());
+  }
+
+  if (url === '/api/mesh-config/test' && req.method === 'POST') {
+    try { return sendJson(res, 200, await testMeshKeys()); }
+    catch (e) { return sendJson(res, 200, { error: e.message }); }
   }
 
   // ── Обновления приложения ──

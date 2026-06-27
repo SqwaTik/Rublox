@@ -794,12 +794,37 @@ local function toolGetTags(args)
 end
 
 -- Создать скрипт (Script/LocalScript/ModuleScript) с исходником сразу.
+-- Куда по умолчанию класть скрипт, если parent не задан и ничего не выделено.
+-- Так write_script/create_script больше НЕ падает с «path не указан».
+local function defaultScriptParent(class)
+	if class == "LocalScript" then
+		local sp = game:GetService("StarterPlayer")
+		return sp:FindFirstChild("StarterPlayerScripts") or sp
+	elseif class == "ModuleScript" then
+		return game:GetService("ReplicatedStorage")
+	else
+		return game:GetService("ServerScriptService")
+	end
+end
+
 local function toolCreateScript(args)
 	local class = args.scriptType or "Script"
 	if class ~= "Script" and class ~= "LocalScript" and class ~= "ModuleScript" then
 		error("scriptType должен быть Script | LocalScript | ModuleScript")
 	end
-	local parent = resolvePath(args.parent)
+	local parent
+	if type(args.parent) == "string" and args.parent ~= "" then
+		parent = resolvePath(args.parent)
+	else
+		-- parent не задан: сначала пробуем выделенный в Explorer объект
+		-- (часто «положи скрипт в этот объект»), иначе — сервис по типу скрипта.
+		local ok, sel = pcall(function() return game:GetService("Selection"):Get() end)
+		if ok and sel and sel[1] then
+			parent = sel[1]
+		else
+			parent = defaultScriptParent(class)
+		end
+	end
 	local scr = Instance.new(class)
 	scr.Name = args.name or class
 	scr.Source = args.source or ""
@@ -2595,6 +2620,134 @@ local function toolSandboxBuild(args)
 end
 
 -- Инструменты, которые НЕ создают точку отмены (чтение/навигация/история/камера).
+-- Вставить меш по assetId как MeshPart (для сгенерированных/загруженных мешей).
+local function toolInsertMeshAsset(args)
+	local id = tostring(args.assetId or ""):gsub("%D", "")
+	if id == "" then error("Не указан assetId меша.") end
+	local mid = "rbxassetid://" .. id
+	local IS = game:GetService("InsertService")
+	local mp
+	local ok, err = pcall(function()
+		mp = IS:CreateMeshPartAsync(mid, Enum.CollisionFidelity.Default, Enum.RenderFidelity.Automatic)
+	end)
+	if not ok or not mp then
+		error("Не удалось загрузить меш " .. mid .. ": " .. tostring(err))
+	end
+	mp.Name = args.name or "Mesh"
+	if args.textureId and tostring(args.textureId) ~= "" then
+		local tid = tostring(args.textureId):gsub("%D", "")
+		if tid ~= "" then pcall(function() mp.TextureID = "rbxassetid://" .. tid end) end
+	end
+	if tonumber(args.scale) then
+		pcall(function() mp.Size = mp.Size * tonumber(args.scale) end)
+	end
+	local parent = (args.parent and args.parent ~= "") and resolvePath(args.parent) or workspace
+	local p = args.position or {}
+	mp.CFrame = CFrame.new(tonumber(p.x) or 0, tonumber(p.y) or 5, tonumber(p.z) or 0)
+	mp.Anchored = args.anchored ~= false
+	mp.Parent = parent
+	return "Вставлен меш как MeshPart: " .. mp:GetFullName()
+end
+
+-- ── 3D-превью: ViewportFrame в плавающем окне дока ──
+-- Показывает клон объекта в 3D (оригинал не трогаем): авто-вращение, перетаскивание
+-- мышью, зум колесом. Чисто визуальный просмотр — плейс не меняется.
+local preview3DGui = nil
+local preview3DConns = {}
+local function toolPreview3D(args)
+	local target = resolvePath(args.path)
+	if not (target:IsA("Model") or target:IsA("BasePart")) then
+		error("preview_in_3d работает с Model или BasePart. Укажи path к модели/детали.")
+	end
+	local clone
+	local ok = pcall(function() clone = target:Clone() end)
+	if not ok or not clone then
+		error("Не удалось клонировать объект для превью.")
+	end
+
+	-- Пересоздаём окно (одно превью за раз).
+	for _, c in ipairs(preview3DConns) do pcall(function() c:Disconnect() end) end
+	preview3DConns = {}
+	if preview3DGui then pcall(function() preview3DGui:Destroy() end) end
+
+	local info = DockWidgetPluginGuiInfo.new(
+		Enum.InitialDockState.Float, true, true, 480, 360, 320, 240)
+	preview3DGui = plugin:CreateDockWidgetPluginGui("RubloxPreview3D", info)
+	preview3DGui.Title = "Rublox 3D: " .. tostring(target.Name or "превью")
+
+	local vp = Instance.new("ViewportFrame")
+	vp.Size = UDim2.new(1, 0, 1, 0)
+	vp.BackgroundColor3 = Color3.fromRGB(28, 30, 36)
+	vp.Ambient = Color3.fromRGB(150, 150, 150)
+	vp.LightColor = Color3.fromRGB(255, 255, 255)
+	vp.LightDirection = Vector3.new(-0.4, -1, -0.6)
+	vp.Active = true
+	vp.Parent = preview3DGui
+
+	-- WorldModel — корректный рендер Model (меши/джойнты).
+	local world = Instance.new("WorldModel")
+	world.Parent = vp
+	clone.Parent = world
+
+	local cam = Instance.new("Camera")
+	cam.Parent = vp
+	vp.CurrentCamera = cam
+
+	-- Центр и радиус для облёта.
+	local center, radius
+	if clone:IsA("Model") then
+		local cf, size = clone:GetBoundingBox()
+		center = cf.Position
+		radius = math.max(size.X, size.Y, size.Z)
+	else
+		center = clone.Position
+		radius = clone.Size.Magnitude
+	end
+	radius = math.max(radius, 2)
+	local dist = radius * 1.6 + 4
+
+	local yaw = math.rad(tonumber(args.yaw) or 35)
+	local pitch = math.rad(tonumber(args.pitch) or -20)
+	local spin = args.spin ~= false
+
+	local function updateCam()
+		local cosP = math.cos(pitch)
+		local off = Vector3.new(math.sin(yaw) * cosP, -math.sin(pitch), math.cos(yaw) * cosP) * dist
+		cam.CFrame = CFrame.lookAt(center + off, center)
+	end
+	updateCam()
+
+	table.insert(preview3DConns, RunService.Heartbeat:Connect(function(dt)
+		if spin then yaw = yaw + dt * 0.6; updateCam() end
+	end))
+
+	local dragging, lastX, lastY = false, 0, 0
+	table.insert(preview3DConns, vp.InputBegan:Connect(function(inp)
+		if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = true; spin = false
+			lastX, lastY = inp.Position.X, inp.Position.Y
+		end
+	end))
+	table.insert(preview3DConns, vp.InputEnded:Connect(function(inp)
+		if inp.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+	end))
+	table.insert(preview3DConns, vp.InputChanged:Connect(function(inp)
+		if inp.UserInputType == Enum.UserInputType.MouseMovement and dragging then
+			local dx, dy = inp.Position.X - lastX, inp.Position.Y - lastY
+			lastX, lastY = inp.Position.X, inp.Position.Y
+			yaw = yaw - dx * 0.01
+			pitch = math.clamp(pitch + dy * 0.01, math.rad(-85), math.rad(85))
+			updateCam()
+		elseif inp.UserInputType == Enum.UserInputType.MouseWheel then
+			dist = math.clamp(dist - inp.Position.Z * radius * 0.15, radius * 0.5, radius * 6 + 10)
+			updateCam()
+		end
+	end))
+
+	preview3DGui.Enabled = true
+	return "Открыл 3D-превью «" .. tostring(target.Name) .. "» в плавающем окне (тяни мышью — поворот, колесо — зум)."
+end
+
 local NO_WAYPOINT = {
 	get_console_output = true, get_studio_context = true, get_instance_properties = true,
 	get_script_source = true, find_instances = true, get_selection = true, get_children = true,
@@ -2602,6 +2755,7 @@ local NO_WAYPOINT = {
 	select_instance = true, focus_camera = true, undo = true, redo = true,
 	start_stop_play = true, run_script_in_play_mode = true,
 	inspect_build = true, get_user_markers = true, set_inspect_mode = true,
+	preview_in_3d = true,
 }
 
 local TOOLS = {
@@ -2672,6 +2826,8 @@ local TOOLS = {
 	start_stop_play = toolStartStopPlay,
 	run_script_in_play_mode = toolRunScriptInPlayMode,
 	search_scripts = toolSearchScripts,
+	preview_in_3d = toolPreview3D,
+	insert_mesh_asset = toolInsertMeshAsset,
 }
 
 local function executeCommand(cmd)

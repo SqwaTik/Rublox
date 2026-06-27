@@ -153,6 +153,7 @@
         <div class="modal-head">
           <div class="tabs">
             <button class="tab active" data-tab="providers" data-t="providers">Providers</button>
+            <button class="tab" data-tab="model3d" data-t="model3d">3D</button>
             <button class="tab" data-tab="plugins" data-t="plugins">Plugins</button>
             <button class="tab" data-tab="connection" data-t="connection">Connection</button>
             <button class="tab" data-tab="appearance" data-t="appearance">Appearance</button>
@@ -190,6 +191,77 @@
             </div>
             <select id="pf-models" class="hidden" size="6"></select>
             <div class="form-hint" id="pf-hint"></div>
+          </div>
+
+          <!-- вкладка 3D (генерация моделей) -->
+          <div class="tab-pane" data-pane="model3d">
+            <p class="form-hint" data-t="model3dIntro">Keys for text→3D generation. Paste several keys (one per line) — Rublox auto-swaps to the next on a limit or quota error.</p>
+
+            <div class="readybar" id="m3-ready"></div>
+
+            <div class="scard">
+              <div class="scard-head"><span class="kp-title" data-t="provider3d">Generator</span></div>
+              <div class="seg" id="m3-provider">
+                <button type="button" data-val="auto" data-t="auto">Auto</button>
+                <button type="button" data-val="tripo">Tripo</button>
+                <button type="button" data-val="meshy">Meshy</button>
+              </div>
+              <div class="form-hint" data-t="provider3dHint">Auto uses Tripo when its key is present, otherwise Meshy.</div>
+            </div>
+
+            <div class="scard">
+              <div class="scard-head">
+                <span class="kp-title" data-t="quality3d">Quality (polygons)</span>
+                <span class="kp-count on" id="m3-poly-val">6000</span>
+              </div>
+              <input type="range" id="m3-poly" class="m3-slider" min="500" max="50000" step="500" value="6000" />
+              <div class="seg seg-presets" id="m3-poly-presets">
+                <button type="button" data-val="2000" data-t="qLow">Low · 2k</button>
+                <button type="button" data-val="6000" data-t="qMed">Medium · 6k</button>
+                <button type="button" data-val="15000" data-t="qHigh">High · 15k</button>
+                <button type="button" data-val="30000" data-t="qUltra">Ultra · 30k</button>
+              </div>
+              <div class="form-hint" data-t="quality3dHint">Fewer polygons = lighter model, better for Roblox performance. The AI can still override per request.</div>
+            </div>
+
+            <div class="scard">
+              <div class="scard-head">
+                <span class="kp-title">Tripo</span>
+                <span class="kp-count" id="m3-tripo-count">0</span>
+                <a class="ext-link" href="https://platform.tripo3d.ai" target="_blank" rel="noopener"><span data-t="getKey">Get key</span> ↗</a>
+              </div>
+              <textarea id="m3-tripo" class="keypool" rows="3" spellcheck="false" data-t-ph="keysPh" placeholder="tsk_… (one per line)"></textarea>
+              <div class="form-hint" data-t="tripoHint">2000 free credits on signup · platform.tripo3d.ai → Dashboard → API Keys.</div>
+            </div>
+
+            <div class="scard">
+              <div class="scard-head">
+                <span class="kp-title">Meshy</span>
+                <span class="kp-count" id="m3-meshy-count">0</span>
+                <a class="ext-link" href="https://www.meshy.ai/api" target="_blank" rel="noopener"><span data-t="getKey">Get key</span> ↗</a>
+              </div>
+              <textarea id="m3-meshy" class="keypool" rows="2" spellcheck="false" data-t-ph="keysPh" placeholder="msy_… (one per line)"></textarea>
+            </div>
+
+            <div class="scard">
+              <div class="scard-head">
+                <span class="kp-title">Roblox Open Cloud</span>
+                <span class="kp-count" id="m3-oc-count">0</span>
+                <a class="ext-link" href="https://create.roblox.com/dashboard/credentials" target="_blank" rel="noopener"><span data-t="getKey">Get key</span> ↗</a>
+              </div>
+              <textarea id="m3-oc" class="keypool" rows="2" spellcheck="false" data-t-ph="keysPh" placeholder="(one per line)"></textarea>
+              <div class="kp-creator">
+                <label><span data-t="creatorUser">Creator user ID</span><input id="m3-oc-user" inputmode="numeric" placeholder="123456789" /></label>
+                <label><span data-t="creatorGroup">or group ID</span><input id="m3-oc-group" inputmode="numeric" placeholder="optional" /></label>
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button class="primary-btn" id="m3-save" data-t="save">Save</button>
+              <button class="ghost-btn" id="m3-test" data-t="testKeys">Test keys</button>
+              <span class="form-hint" id="m3-hint"></span>
+            </div>
+            <div class="kp-results" id="m3-results"></div>
           </div>
 
           <!-- вкладка Plugins (ИИ-скиллы) -->

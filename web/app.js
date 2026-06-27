@@ -1449,7 +1449,7 @@ document.addEventListener('click', (e) => {
 });
 
 // ── Настройки ──────────────────────────────────────────
-$('openSettings').onclick = () => { $('settingsOverlay').classList.remove('hidden'); renderTemplates(); loadConnection(); renderThemeGrid(); loadSkills(); };
+$('openSettings').onclick = () => { $('settingsOverlay').classList.remove('hidden'); renderTemplates(); loadConnection(); renderThemeGrid(); loadSkills(); loadMesh3d(); };
 $('closeSettings').onclick = () => $('settingsOverlay').classList.add('hidden');
 $('settingsOverlay').onclick = (e) => { if (e.target === $('settingsOverlay')) $('settingsOverlay').classList.add('hidden'); };
 document.querySelectorAll('.tab').forEach((tab) => {
@@ -1589,6 +1589,147 @@ if ($('set-pcagent')) $('set-pcagent').onchange = () => {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ enabled: $('set-pcagent').checked }),
   });
+};
+
+// ── Вкладка 3D (генерация моделей: пулы ключей + авто-свап) ──
+function m3countKeys(text) {
+  return String(text || '').split(/[\s,]+/).map((s) => s.trim()).filter(Boolean).length;
+}
+function m3setCount(id, text) {
+  const el = $(id); if (!el) return;
+  const n = m3countKeys(text);
+  el.textContent = n;
+  el.classList.toggle('on', n > 0);
+}
+function m3refreshCounts() {
+  m3setCount('m3-tripo-count', $('m3-tripo').value);
+  m3setCount('m3-meshy-count', $('m3-meshy').value);
+  m3setCount('m3-oc-count', $('m3-oc').value);
+}
+function m3setProvider(val) {
+  document.querySelectorAll('#m3-provider button').forEach((b) =>
+    b.classList.toggle('seg-on', b.dataset.val === val));
+}
+function m3setPoly(n) {
+  const sl = $('m3-poly'); if (!sl) return;
+  n = Math.min(50000, Math.max(500, Math.round(Number(n) || 6000)));
+  sl.value = n;
+  $('m3-poly-val').textContent = n >= 1000 ? (n / 1000).toFixed(n % 1000 ? 1 : 0) + 'k' : n;
+  const pct = ((n - sl.min) / (sl.max - sl.min)) * 100;
+  sl.style.setProperty('--fill', pct + '%');
+  document.querySelectorAll('#m3-poly-presets button').forEach((b) =>
+    b.classList.toggle('seg-on', Number(b.dataset.val) === n));
+}
+function m3currentProvider() {
+  const on = document.querySelector('#m3-provider button.seg-on');
+  return (on && on.dataset.val) || 'auto';
+}
+function m3renderReady(r) {
+  const bar = $('m3-ready'); if (!bar) return;
+  const chip = (label, ok) => `<span class="rchip ${ok ? 'ok' : 'bad'}">${label}</span>`;
+  bar.innerHTML =
+    chip(window.t('chipGenerator') || 'Generator', !!r.generator) +
+    chip(window.t('chipOpenCloud') || 'Open Cloud', !!r.openCloud) +
+    chip(window.t('chipCreator') || 'Creator ID', !!r.creator);
+}
+function m3apply(r) {
+  $('m3-tripo').value = (r.tripoKeys || []).join('\n');
+  $('m3-meshy').value = (r.meshyKeys || []).join('\n');
+  $('m3-oc').value = (r.openCloudKeys || []).join('\n');
+  m3refreshCounts();
+  m3renderReady(r);
+}
+async function loadMesh3d() {
+  if (!$('m3-tripo')) return;
+  try {
+    const r = await fetch('/api/mesh-config').then((r) => r.json());
+    m3apply(r);
+    $('m3-oc-user').value = r.openCloudUserId || '';
+    $('m3-oc-group').value = r.openCloudGroupId || '';
+    m3setProvider(r.mesh3dProvider || 'auto');
+    m3setPoly(r.mesh3dPolycount || 6000);
+    $('m3-hint').textContent = '';
+    $('m3-hint').className = 'form-hint';
+    $('m3-results').innerHTML = '';
+  } catch { /* пусто */ }
+}
+document.querySelectorAll('#m3-provider button').forEach((b) => {
+  b.onclick = () => m3setProvider(b.dataset.val);
+});
+if ($('m3-poly')) $('m3-poly').oninput = () => m3setPoly($('m3-poly').value);
+document.querySelectorAll('#m3-poly-presets button').forEach((b) => {
+  b.onclick = () => m3setPoly(b.dataset.val);
+});
+['m3-tripo', 'm3-meshy', 'm3-oc'].forEach((id) => {
+  if ($(id)) $(id).oninput = m3refreshCounts;
+});
+if ($('m3-save')) $('m3-save').onclick = async () => {
+  const hint = $('m3-hint');
+  try {
+    const r = await fetch('/api/mesh-config', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        mesh3dProvider: m3currentProvider(),
+        mesh3dPolycount: $('m3-poly') ? $('m3-poly').value : 6000,
+        tripoApiKeys: $('m3-tripo').value,
+        meshyApiKeys: $('m3-meshy').value,
+        openCloudApiKeys: $('m3-oc').value,
+        openCloudUserId: $('m3-oc-user').value.trim(),
+        openCloudGroupId: $('m3-oc-group').value.trim(),
+      }),
+    }).then((r) => r.json());
+    m3apply(r);
+    const ready = r.generator && r.openCloud && r.creator;
+    hint.className = 'form-hint ' + (ready ? 'ok' : 'err');
+    hint.textContent = ready
+      ? (window.t('mesh3dReady') || 'Готово к генерации.')
+      : (window.t('mesh3dMissing') || 'Сохранено, но для генерации нужны: генератор + Open Cloud + ID создателя.');
+    showToast(window.t('saved') || 'Сохранено', 'ok');
+  } catch (e) {
+    hint.className = 'form-hint err'; hint.textContent = e.message;
+  }
+};
+if ($('m3-test')) $('m3-test').onclick = async () => {
+  const box = $('m3-results'); const btn = $('m3-test');
+  box.innerHTML = `<div class="kp-res"><span class="kp-key">${window.t('testing') || 'Checking…'}</span></div>`;
+  btn.disabled = true;
+  try {
+    // сначала сохраняем введённое, чтобы проверять актуальные ключи
+    const saved = await fetch('/api/mesh-config', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        mesh3dProvider: m3currentProvider(),
+        mesh3dPolycount: $('m3-poly') ? $('m3-poly').value : 6000,
+        tripoApiKeys: $('m3-tripo').value, meshyApiKeys: $('m3-meshy').value,
+        openCloudApiKeys: $('m3-oc').value,
+        openCloudUserId: $('m3-oc-user').value.trim(), openCloudGroupId: $('m3-oc-group').value.trim(),
+      }),
+    }).then((r) => r.json());
+    m3apply(saved);
+    const r = await fetch('/api/mesh-config/test', { method: 'POST' }).then((r) => r.json());
+    box.innerHTML = '';
+    if (r.error) { box.innerHTML = `<div class="kp-res bad"><span class="kp-val">${r.error}</span></div>`; return; }
+    const groups = [['Tripo', r.tripo], ['Meshy', r.meshy], ['Open Cloud', r.openCloud]];
+    let any = false;
+    for (const [name, list] of groups) {
+      if (!list || !list.length) continue;
+      any = true;
+      const g = document.createElement('div'); g.className = 'kp-res-group'; g.textContent = name; box.appendChild(g);
+      for (const it of list) {
+        const row = document.createElement('div');
+        let cls = 'kp-res', val;
+        if (it.ok === true) { cls += ' ok'; val = (Number.isFinite(it.balance) ? it.balance + ' ' + (window.t('credits') || 'credits') : (window.t('valid') || 'valid')); }
+        else if (it.ok === false) { cls += ' bad'; val = it.error || (window.t('invalid') || 'invalid'); }
+        else { val = window.t('configured') || 'configured'; }
+        row.className = cls;
+        row.innerHTML = `<span class="kp-key">${it.key}</span><span class="kp-val">${val}</span>`;
+        box.appendChild(row);
+      }
+    }
+    if (!any) box.innerHTML = `<div class="kp-res"><span class="kp-key">${window.t('noKeys') || 'No keys to test'}</span></div>`;
+  } catch (e) {
+    box.innerHTML = `<div class="kp-res bad"><span class="kp-val">${e.message}</span></div>`;
+  } finally { btn.disabled = false; }
 };
 
 // ── ИИ-плагины (скиллы) ────────────────────────────────

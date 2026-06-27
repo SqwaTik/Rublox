@@ -1030,6 +1030,65 @@ export const TOOLS = [
     },
   },
   {
+    name: 'preview_in_3d',
+    description:
+      'ПРОСМОТР В 3D: открыть объект (Model или BasePart) в отдельном плавающем 3D-окне ' +
+      'плагина (ViewportFrame). Модель автоматически вращается, пользователь может крутить её ' +
+      'мышью и зумить колесом. Оригинал НЕ меняется (показывается клон). Удобно показать ' +
+      'пользователю результат постройки/импортированный меш «вживую» под всеми углами.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Путь к Model или BasePart, напр. game.Workspace.House.' },
+        spin: { type: 'boolean', description: 'Авто-вращение (по умолчанию true).' },
+        yaw: { type: 'number', description: 'Начальный поворот по горизонтали, градусы.' },
+        pitch: { type: 'number', description: 'Начальный наклон камеры, градусы (отрицат. = сверху).' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'insert_mesh_asset',
+    description:
+      'Вставить меш по assetId как MeshPart (для сгенерированных через generate_3d_model или ' +
+      'уже загруженных мешей). Создаёт MeshPart через InsertService:CreateMeshPartAsync.',
+    parameters: {
+      type: 'object',
+      properties: {
+        assetId: { type: 'string', description: 'ID ассета-меша (число или rbxassetid://).' },
+        name: { type: 'string', description: 'Имя MeshPart.' },
+        textureId: { type: 'string', description: 'ID текстуры (необязательно).' },
+        parent: { type: 'string', description: 'Путь к родителю (по умолчанию Workspace).' },
+        position: { type: 'object', description: '{x,y,z} позиция (studs).' },
+        scale: { type: 'number', description: 'Множитель размера (необязательно).' },
+        anchored: { type: 'boolean', description: 'Заякорить (по умолчанию true).' },
+      },
+      required: ['assetId'],
+    },
+  },
+  {
+    name: 'generate_3d_model',
+    description:
+      'СГЕНЕРИРОВАТЬ 3D-МОДЕЛЬ по текстовому описанию (как nilo): внешний AI-генератор мешей ' +
+      '(Meshy) делает low-poly модель → автозагрузка в Roblox через Open Cloud → assetId. ' +
+      'Если Studio подключён — модель сразу вставляется в Workspace как MeshPart. Требует ключей ' +
+      'Meshy и Open Cloud (настройки/ENV); если их нет — вернётся понятная инструкция. ' +
+      'polycount держи небольшим (3000–8000) ради производительности Roblox. Генерация занимает ' +
+      'от 30 сек до нескольких минут — это нормально.',
+    parameters: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: 'Описание объекта на английском (лучше результат), напр. "low poly medieval house".' },
+        name: { type: 'string', description: 'Имя ассета/модели.' },
+        polycount: { type: 'number', description: 'Целевое число полигонов (3000–8000 рекомендуется).' },
+        refine: { type: 'boolean', description: 'Делать текстуру (refine). По умолчанию true; false = быстрее и без текстуры.' },
+        parent: { type: 'string', description: 'Куда вставить (по умолчанию Workspace), если Studio подключён.' },
+        position: { type: 'object', description: '{x,y,z} позиция вставки.' },
+      },
+      required: ['prompt'],
+    },
+  },
+  {
     name: 'search_assets',
     description:
       'Найти ассеты в каталоге/тулбоксе Roblox по ключевому слову. Возвращает список ' +
@@ -1828,10 +1887,10 @@ export const PC_TOOLS = new Set([
 ]);
 
 // Инструменты со спец-логикой в agent.js (не чистый проброс).
-export const SPECIAL_TOOLS = new Set(['use_template', 'update_plan', 'plan_build', 'ask_user', 'review_blueprint', 'remember', 'capture_place']);
+export const SPECIAL_TOOLS = new Set(['use_template', 'update_plan', 'plan_build', 'ask_user', 'review_blueprint', 'remember', 'capture_place', 'generate_3d_model']);
 
-// Инструменты, доступные ВСЕГДА (в любом режиме): планирование, генплан, вопрос, память.
-export const ALWAYS_TOOLS = new Set(['update_plan', 'plan_build', 'ask_user', 'review_blueprint', 'remember']);
+// Инструменты, доступные ВСЕГДА (в любом режиме): планирование, генплан, вопрос, память, генерация 3D.
+export const ALWAYS_TOOLS = new Set(['update_plan', 'plan_build', 'ask_user', 'review_blueprint', 'remember', 'generate_3d_model']);
 
 // Имена всех объявленных инструментов.
 export const TOOL_NAMES = TOOLS.map((t) => t.name);

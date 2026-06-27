@@ -14,6 +14,7 @@ import { renderBlueprintPNG } from './png.js';
 import { codeSearch } from './code-search.js';
 import { getActiveProject } from './projects.js';
 import { addKnowledge } from './knowledge.js';
+import { generateAndUpload, meshConfigStatus, meshPolycount } from './mesh3d.js';
 import {
   runCommand, readFileTool, writeFileTool, editFileTool, multiEditTool, listDirTool, makeDirTool,
   deletePathTool, moveTool, copyTool, appendFileTool, readLinesTool, statTool,
@@ -149,7 +150,7 @@ const NON_STUDIO_HANDLED = new Set([
   'process_stop', 'process_list', 'git', 'launch_app', 'focus_window', 'send_keys',
   'run_code_sandbox', 'install_runtime', 'code_search',
   'use_template', 'update_plan', 'plan_build', 'ask_user', 'write_script', 'review_blueprint',
-  'remember', 'capture_place',
+  'remember', 'capture_place', 'generate_3d_model',
 ]);
 
 // САМОПРОВЕРКА при старте: каждая объявленная схема должна иметь обработчик, иначе
@@ -332,6 +333,44 @@ async function runTool(name, args, ctx = {}) {
         addKnowledge(summary, { tags: ['map', place], source: 'capture' });
       } catch (e) { return `Снимок получен, но не сохранён: ${e.message}`; }
       return `Снял слепок плейса «${place}» и записал в память. В дальнейшем смогу опираться на его устройство.`;
+    }
+    case 'generate_3d_model': {
+      // Текст → 3D-меш (Meshy) → загрузка в Roblox (Open Cloud) → assetId.
+      // Если Studio подключён — сразу вставляем как MeshPart.
+      const st = meshConfigStatus();
+      if (!st.generator || !st.openCloud || !st.creator) {
+        const miss = [];
+        if (!st.generator) miss.push('ключ генератора 3D — Tripo (TRIPO_API_KEY/tripoApiKey) или Meshy (MESHY_API_KEY/meshyApiKey)');
+        if (!st.openCloud) miss.push('ключ Open Cloud (ROBLOX_OPEN_CLOUD_KEY или openCloudApiKey)');
+        if (!st.creator) miss.push('ID создателя (ROBLOX_CREATOR_USER_ID или ROBLOX_CREATOR_GROUP_ID)');
+        return 'Генерация 3D недоступна — не настроены: ' + miss.join('; ') +
+          '. Задай их через ENV или POST /api/mesh-config, затем повтори.';
+      }
+      let gen;
+      try {
+        gen = await generateAndUpload({
+          prompt: args.prompt,
+          name: args.name,
+          polycount: Number(args.polycount) || meshPolycount(),
+          refine: args.refine !== false,
+        });
+      } catch (e) {
+        return `Не удалось сгенерировать 3D-модель: ${e.message}`;
+      }
+      if (bridge.isConnected()) {
+        try {
+          const r = await bridge.dispatch('insert_mesh_asset', {
+            assetId: gen.assetId, name: args.name || args.prompt,
+            parent: args.parent, position: args.position,
+          });
+          return `Сгенерирована и вставлена 3D-модель (assetId ${gen.assetId}). ${resultToString(r)}`;
+        } catch (e) {
+          return `Модель сгенерирована и загружена (assetId ${gen.assetId}), но вставить в Studio не вышло: ${e.message}. ` +
+            `Вставь вручную через insert_mesh_asset assetId=${gen.assetId}.`;
+        }
+      }
+      return `Сгенерирована и загружена 3D-модель. assetId: ${gen.assetId}. ` +
+        `Studio не подключён — подключи мост и вставь через insert_mesh_asset assetId=${gen.assetId}.`;
     }
     case 'write_script': {
       // Создать/заменить скрипт в Studio. Удобная обёртка: при подключённом
