@@ -1706,6 +1706,7 @@ async function loadMesh3d() {
     m3apply(r);
     $('m3-oc-user').value = r.openCloudUserId || '';
     $('m3-oc-group').value = r.openCloudGroupId || '';
+    if ($('m3-trellis-space')) $('m3-trellis-space').value = r.trellisSpace || '';
     m3setProvider(r.mesh3dProvider || 'auto');
     m3setPoly(r.mesh3dPolycount || 6000);
     $('m3-hint').textContent = '';
@@ -1731,6 +1732,8 @@ if ($('m3-save')) $('m3-save').onclick = async () => {
       body: JSON.stringify({
         mesh3dProvider: m3currentProvider(),
         mesh3dPolycount: $('m3-poly') ? $('m3-poly').value : 6000,
+        trellisSpace: $('m3-trellis-space') ? $('m3-trellis-space').value.trim() : '',
+        hfToken: $('m3-hf-token') ? $('m3-hf-token').value.trim() : '',
         tripoApiKeys: $('m3-tripo').value,
         meshyApiKeys: $('m3-meshy').value,
         openCloudApiKeys: $('m3-oc').value,
@@ -1760,6 +1763,8 @@ if ($('m3-test')) $('m3-test').onclick = async () => {
       body: JSON.stringify({
         mesh3dProvider: m3currentProvider(),
         mesh3dPolycount: $('m3-poly') ? $('m3-poly').value : 6000,
+        trellisSpace: $('m3-trellis-space') ? $('m3-trellis-space').value.trim() : '',
+        hfToken: $('m3-hf-token') ? $('m3-hf-token').value.trim() : '',
         tripoApiKeys: $('m3-tripo').value, meshyApiKeys: $('m3-meshy').value,
         openCloudApiKeys: $('m3-oc').value,
         openCloudUserId: $('m3-oc-user').value.trim(), openCloudGroupId: $('m3-oc-group').value.trim(),

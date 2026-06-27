@@ -206,6 +206,7 @@
                 <button type="button" data-val="auto" data-t="auto">Auto</button>
                 <button type="button" data-val="tripo">Tripo</button>
                 <button type="button" data-val="meshy">Meshy</button>
+                <button type="button" data-val="trellis">TRELLIS</button>
               </div>
               <div class="form-hint" data-t="provider3dHint">Auto uses Tripo when its key is present, otherwise Meshy.</div>
             </div>
@@ -242,6 +243,27 @@
                 <a class="ext-link" href="https://www.meshy.ai/api" target="_blank" rel="noopener"><span data-t="getKey">Get key</span> ↗</a>
               </div>
               <textarea id="m3-meshy" class="keypool" rows="2" spellcheck="false" data-t-ph="keysPh" placeholder="msy_… (one per line)"></textarea>
+            </div>
+
+            <div class="scard">
+              <div class="scard-head">
+                <span class="kp-title">TRELLIS</span>
+                <span class="kp-badge" data-t="free">бесплатно</span>
+                <a class="ext-link" href="https://huggingface.co/spaces/PUM4CH3N/TRELLIS_TextTo3D" target="_blank" rel="noopener"><span data-t="trellisOpen">Открыть Space</span> ↗</a>
+              </div>
+              <label class="kp-field"><span data-t="trellisSpaceLabel">URL HuggingFace Space</span>
+                <input id="m3-trellis-space" spellcheck="false" placeholder="https://pum4ch3n-trellis-textto3d.hf.space" />
+              </label>
+              <label class="kp-field"><span data-t="hfTokenLabel">HF-токен (необязательно)</span>
+                <input id="m3-hf-token" type="password" spellcheck="false" placeholder="hf_…" />
+              </label>
+              <div class="kp-explain" data-t="trellisHelp">
+                TRELLIS — бесплатная нейросеть Microsoft для генерации 3D из текста, размещённая на Hugging Face.
+                Что делать: 1) открой Space по ссылке выше → нажми три точки → Duplicate this Space (свой стабильный экземпляр) ИЛИ используй публичный;
+                2) скопируй его URL (вида https://ИМЯ.hf.space) сюда; 3) выбери провайдер TRELLIS вверху и сохрани.
+                Как работает: текст → GLB → Rublox сам конвертирует в FBX через Blender (скачается ~300 МБ при первой генерации) → загрузка в Roblox.
+                Важно: публичные Space бывают перегружены (очередь/таймаут) — для надёжности дублируй Space к себе. HF-токен нужен только для приватных Space.
+              </div>
             </div>
 
             <div class="scard">
