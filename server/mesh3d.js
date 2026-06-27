@@ -8,6 +8,7 @@
 // Зависимостей нет: используем глобальные fetch/FormData/Blob (Node 18+).
 
 import { appConfigGet } from './app-config.js';
+import { glbToFbx } from './blender.js';
 
 const MESHY_BASE = process.env.MESHY_BASE_URL || 'https://api.meshy.ai/openapi/v2';
 const TRIPO_BASE = process.env.TRIPO_BASE_URL || 'https://api.tripo3d.ai/v2/openapi';
@@ -96,10 +97,12 @@ export function meshConfigStatus() {
   const c = openCloudCreator();
   const tripo = poolKeys('tripo').length;
   const meshy = poolKeys('meshy').length;
+  const trellis = !!(process.env.TRELLIS_SPACE || appConfigGet('trellisSpace', ''));
   return {
     meshy: !!meshy,
     tripo: !!tripo,
-    generator: !!(meshy || tripo),
+    trellis,
+    generator: !!(meshy || tripo || trellis),
     provider: resolveProvider(),
     openCloud: !!poolKeys('opencloud').length,
     creator: !!(c.uid || c.gid),
@@ -119,6 +122,7 @@ export function meshConfigDetail() {
     openCloudGroupId: c.gid,
     mesh3dProvider: String(appConfigGet('mesh3dProvider', '') || 'auto'),
     mesh3dPolycount: meshPolycount(),
+    trellisSpace: String(process.env.TRELLIS_SPACE || appConfigGet('trellisSpace', '') || ''),
   };
 }
 
@@ -306,10 +310,68 @@ export async function testMeshKeys() {
   return out;
 }
 
-// Диспетчер генератора (Meshy / Tripo) по выбранному провайдеру.
+// ── TRELLIS (Hugging Face Space, бесплатно) — ЭКСПЕРИМЕНТАЛЬНО ──
+// Выдаёт GLB (конвертируется в FBX через Blender). Публичный Space нестабилен
+// (очереди/таймауты), поэтому endpoints/Space настраиваются через env.
+const TRELLIS_SPACE = (process.env.TRELLIS_SPACE || appConfigGet('trellisSpace', '') || '').replace(/\/$/, '');
+const TRELLIS_TOKEN = process.env.HF_TOKEN || appConfigGet('hfToken', '') || '';
+const TRELLIS_API_TEXT = process.env.TRELLIS_API_TEXT || '/text_to_3d';
+const TRELLIS_API_GLB = process.env.TRELLIS_API_GLB || '/extract_glb';
+
+// Стандартный вызов Gradio 4.x: POST .../gradio_api/call/<api> → event_id,
+// затем GET того же пути/<event_id> (SSE) → финальные данные.
+async function gradioCall(space, api, data) {
+  const headers = { 'content-type': 'application/json' };
+  if (TRELLIS_TOKEN) headers.authorization = `Bearer ${TRELLIS_TOKEN}`;
+  const post = await fetch(`${space}/gradio_api/call${api}`, {
+    method: 'POST', headers, body: JSON.stringify({ data }),
+  });
+  const txt = await post.text();
+  if (!post.ok) throw new Error(`TRELLIS ${api} ${post.status}: ${txt.slice(0, 200)}`);
+  let eid = '';
+  try { eid = (JSON.parse(txt).event_id) || ''; } catch { /* */ }
+  if (!eid) throw new Error(`TRELLIS ${api}: нет event_id (${txt.slice(0, 120)})`);
+  const res = await fetch(`${space}/gradio_api/call${api}/${eid}`, { headers: TRELLIS_TOKEN ? { authorization: `Bearer ${TRELLIS_TOKEN}` } : {} });
+  const body = await res.text();
+  // Берём последний data-блок из SSE.
+  let payload = null;
+  for (const line of body.split('\n')) {
+    const m = line.match(/^data:\s*(.+)$/);
+    if (m) { try { payload = JSON.parse(m[1]); } catch { /* */ } }
+  }
+  if (payload == null) throw new Error(`TRELLIS ${api}: пустой ответ (${body.slice(0, 160)})`);
+  return payload;
+}
+
+function fileUrlFrom(val, space) {
+  // Gradio отдаёт файл как {url} / {path} / строкой.
+  const pick = (o) => o && (o.url || (o.path ? `${space}/gradio_api/file=${o.path}` : ''));
+  if (Array.isArray(val)) {
+    for (const v of val) { const u = typeof v === 'string' ? v : pick(v); if (u && /\.glb/i.test(u)) return u; }
+    for (const v of val) { const u = typeof v === 'string' ? v : pick(v); if (u) return u; }
+  }
+  if (typeof val === 'string') return val;
+  return pick(val) || '';
+}
+
+async function generateMeshTrellis({ prompt, onProgress } = {}) {
+  if (!TRELLIS_SPACE) throw new Error('TRELLIS не настроен: задай TRELLIS_SPACE (URL HF Space, напр. https://pum4ch3n-trellis-textto3d.hf.space) в ENV или настройках.');
+  if (!prompt || !String(prompt).trim()) throw new Error('Пустой prompt для генерации.');
+  if (onProgress) onProgress(10, 'TRELLIS: генерация');
+  // Шаг 1: текст → 3D (state/preview). Шаг 2: извлечь GLB.
+  await gradioCall(TRELLIS_SPACE, TRELLIS_API_TEXT, [String(prompt), 0]);
+  if (onProgress) onProgress(60, 'TRELLIS: извлечение GLB');
+  const glbRes = await gradioCall(TRELLIS_SPACE, TRELLIS_API_GLB, [0.95, 1024]);
+  const glbUrl = fileUrlFrom(glbRes, TRELLIS_SPACE);
+  if (!glbUrl) throw new Error('TRELLIS: не удалось получить ссылку на GLB (проверь api-endpoints TRELLIS_API_*).');
+  return { glbUrl, fbxUrl: '', objUrl: '', thumbnail: '', taskId: 'trellis' };
+}
+
+// Диспетчер генератора (Meshy / Tripo / TRELLIS) по выбранному провайдеру.
 export async function generateMesh(opts = {}) {
   const provider = resolveProvider(opts.provider);
   if (provider === 'tripo') return generateMeshTripo(opts);
+  if (provider === 'trellis') return generateMeshTrellis(opts);
   return generateMeshMeshy(opts);
 }
 
@@ -365,10 +427,30 @@ export async function uploadToRoblox(fbxBuffer, { name = 'AIModel', description 
   });
 }
 
-// Полный путь: текст → меш → Roblox assetId.
+// Получить FBX-буфер из результата генерации: у Tripo/Meshy уже есть fbxUrl;
+// у GLB-генераторов (TRELLIS и пр.) скачиваем GLB и конвертируем через Blender.
+async function fbxFromGen(gen, onProgress) {
+  if (gen.fbxUrl) return downloadBuffer(gen.fbxUrl);
+  if (gen.glbBuffer || gen.glbUrl) {
+    const glb = gen.glbBuffer || (await downloadBuffer(gen.glbUrl));
+    if (onProgress) onProgress(0, 'конвертация GLB→FBX (Blender)');
+    return glbToFbx(glb, { onProgress });
+  }
+  throw new Error('Генератор не вернул ни FBX, ни GLB.');
+}
+
+// Полный путь: текст → меш → (при необходимости GLB→FBX) → Roblox assetId.
 export async function generateAndUpload({ prompt, polycount, refine, name, onProgress } = {}) {
   const gen = await generateMesh({ prompt, polycount, refine, onProgress });
-  const buf = await downloadBuffer(gen.fbxUrl);
+  const buf = await fbxFromGen(gen, onProgress);
   const assetId = await uploadToRoblox(buf, { name: name || prompt });
   return { assetId, ...gen };
+}
+
+// Загрузить готовый GLB (буфер или URL) в Roblox через конвертацию Blender.
+// Переиспользуемо: любой GLB → Roblox assetId.
+export async function uploadGlbToRoblox(glbOrUrl, { name = 'AIModel', onProgress } = {}) {
+  const glb = Buffer.isBuffer(glbOrUrl) ? glbOrUrl : await downloadBuffer(glbOrUrl);
+  const fbx = await glbToFbx(glb, { onProgress });
+  return uploadToRoblox(fbx, { name });
 }

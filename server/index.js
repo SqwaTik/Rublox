@@ -241,6 +241,8 @@ async function handleAppApi(req, res, url) {
     if (typeof body.tripoApiKey === 'string') appConfigSet('tripoApiKey', body.tripoApiKey.trim());
     if (typeof body.openCloudApiKey === 'string') appConfigSet('openCloudApiKey', body.openCloudApiKey.trim());
     if (typeof body.mesh3dProvider === 'string') appConfigSet('mesh3dProvider', body.mesh3dProvider.trim().toLowerCase());
+    if (typeof body.trellisSpace === 'string') appConfigSet('trellisSpace', body.trellisSpace.trim().replace(/\/$/, ''));
+    if (typeof body.hfToken === 'string') appConfigSet('hfToken', body.hfToken.trim());
     if (body.mesh3dPolycount != null && body.mesh3dPolycount !== '') {
       const n = Math.min(50000, Math.max(500, Math.round(Number(body.mesh3dPolycount) || 6000)));
       appConfigSet('mesh3dPolycount', n);

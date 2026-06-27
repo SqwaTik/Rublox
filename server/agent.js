@@ -394,6 +394,20 @@ async function runTool(name, args, ctx = {}) {
         return 'Генерация 3D недоступна — не настроены: ' + miss.join('; ') +
           '. Задай их через ENV или POST /api/mesh-config, затем повтори.';
       }
+      // Видимое сообщение «начал генерацию» — процесс долгий (1–3 мин), без него
+      // кажется, что чат завис.
+      const provider = (st.provider || 'генератор');
+      if (ctx.onEvent) {
+        ctx.onEvent('assistant_start', {});
+        ctx.onEvent('assistant_text', { text: `Начинаю генерацию 3D-модели «${args.prompt}» через ${provider}… это займёт 1–3 минуты.` });
+      }
+      let lastPct = -1;
+      const onProgress = (pct, stage) => {
+        const p = Math.round(Number(pct) || 0);
+        if (!ctx.onEvent || p === lastPct) return;
+        lastPct = p;
+        ctx.onEvent('status', { text: `Генерация 3D (${stage || 'идёт'}): ${p}%` });
+      };
       let gen;
       try {
         gen = await generateAndUpload({
@@ -401,8 +415,17 @@ async function runTool(name, args, ctx = {}) {
           name: args.name,
           polycount: Number(args.polycount) || meshPolycount(),
           refine: args.refine !== false,
+          onProgress,
         });
       } catch (e) {
+        // Частый случай: на Tripo нет API-кредитов (веб-кредиты ≠ API-кредиты).
+        if (/credit|insufficient|balance|2008|quota|payment/i.test(e.message)) {
+          return `Не удалось сгенерировать 3D-модель: на ключе нет API-кредитов. ` +
+            `Важно: бесплатные кредиты на сайте Tripo (Studio) ≠ API-кредиты — они считаются отдельно. ` +
+            `Получи бесплатные API-кредиты по программе для разработчиков (Tripo Game Hub Developer API Credits, ` +
+            `разовый грант ~5000) или пополни на platform.tripo3d.ai → Billing. Проверить баланс ключей можно ` +
+            `во вкладке «3D» → «Проверить ключи». (Ошибка: ${e.message})`;
+        }
         return `Не удалось сгенерировать 3D-модель: ${e.message}`;
       }
       if (bridge.isConnected()) {
